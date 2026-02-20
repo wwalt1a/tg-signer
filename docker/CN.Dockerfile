@@ -31,8 +31,11 @@ RUN apt-get update && \
     echo ${TZ} > /etc/timezone && \
     rm -rf /var/lib/apt/lists/*
 
+COPY . /tmp/tg-signer-src/
+
 RUN pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
     pip install /tmp/*.whl && \
-    pip install -U "tg-signer[tgcrypto]"
+    pip install "/tmp/tg-signer-src[tgcrypto]" && \
+    rm -rf /tmp/tg-signer-src
 
 WORKDIR /opt/tg-signer

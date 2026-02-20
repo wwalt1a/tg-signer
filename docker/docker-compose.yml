@@ -5,8 +5,8 @@ networks:
 services:
   tg-signer:
     build:
-      context: .
-      dockerfile: CN.Dockerfile
+      context: ..
+      dockerfile: docker/CN.Dockerfile
       args:
         TZ: ${TZ:-Asia/Shanghai}
     container_name: ${CONTAINER_NAME:-tg-signer}
