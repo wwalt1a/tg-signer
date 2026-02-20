@@ -35,7 +35,7 @@ COPY . /tmp/tg-signer-src/
 
 RUN pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
     pip install /tmp/*.whl && \
-    pip install "/tmp/tg-signer-src[tgcrypto]" && \
+    pip install "/tmp/tg-signer-src[tgcrypto,gui]" && \
     rm -rf /tmp/tg-signer-src
 
 WORKDIR /opt/tg-signer
