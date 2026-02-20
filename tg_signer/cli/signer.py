@@ -264,11 +264,19 @@ def run_once(obj, task_name, num_of_dialogs):
     required=False,
     help="秒, 发送消息后进行删除, 默认不删除, '0'表示立即删除.",
 )
+@click.option(
+    "--thread-id",
+    "thread_id",
+    type=int,
+    required=False,
+    default=None,
+    help="话题 Thread ID，发送到指定群聊话题（可选）",
+)
 @click.pass_obj
-def send_text(obj, chat_id, text, delete_after=None):
+def send_text(obj, chat_id, text, delete_after=None, thread_id=None):
     singer = get_signer(None, obj)
     click.echo("将发送单次消息")
-    singer.app_run(singer.send_text(chat_id, text, delete_after))
+    singer.app_run(singer.send_text(chat_id, text, delete_after, message_thread_id=thread_id))
 
 
 @tg_signer.command(
@@ -286,11 +294,19 @@ def send_text(obj, chat_id, text, delete_after=None):
     required=False,
     help="秒, 发送消息后进行删除, 默认不删除, '0'表示立即删除.",
 )
+@click.option(
+    "--thread-id",
+    "thread_id",
+    type=int,
+    required=False,
+    default=None,
+    help="话题 Thread ID，发送到指定群聊话题（可选）",
+)
 @click.pass_obj
-def send_dice(obj, chat_id, emoji, delete_after=None):
+def send_dice(obj, chat_id, emoji, delete_after=None, thread_id=None):
     singer = get_signer(None, obj)
     click.echo("将发送单次DICE消息")
-    singer.app_run(singer.send_dice_cli(chat_id, emoji, delete_after))
+    singer.app_run(singer.send_dice_cli(chat_id, emoji, delete_after, message_thread_id=thread_id))
 
 
 @tg_signer.command(help="重新配置")

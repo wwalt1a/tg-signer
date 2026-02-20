@@ -228,6 +228,7 @@ class SignChatV3(BaseJSONConfig):
     version: ClassVar = 3
     chat_id: int
     name: Optional[str] = None
+    thread_id: Optional[int] = None  # 话题 Thread ID（Forum 模式的超级群组话题）
     delete_after: Optional[int] = None
     actions: List[ActionT]
     action_interval: float = 1  # actions的间隔时间，单位秒
@@ -235,6 +236,7 @@ class SignChatV3(BaseJSONConfig):
     def __repr__(self) -> str:
         return (
             f"SignChatV3(chat_id={self.chat_id}, "
+            f"thread_id={self.thread_id}, "
             f"delete_after={self.delete_after}, "
             f"actions=[{len(self.actions)} actions]),"
             f"action_interval={self.action_interval}"
@@ -350,6 +352,7 @@ class HttpCallback(BaseModel):
 
 class MatchConfig(BaseJSONConfig):
     chat_id: Union[int, str] = None  # 聊天id或username
+    thread_id: Optional[int] = None  # 话题 Thread ID（Forum 模式的超级群组话题，None 表示匹配所有话题）
     rule: MatchRuleT = "exact"  # 匹配规则
     rule_value: Optional[str] = None  # 规则值
     from_user_ids: Optional[List[Union[int, str]]] = (
@@ -365,6 +368,7 @@ class MatchConfig(BaseJSONConfig):
     forward_to_chat_id: Optional[Union[int, str]] = (
         None  # 转发消息到该聊天，默认为消息来源
     )
+    forward_to_thread_id: Optional[int] = None  # 转发消息到该话题，默认与消息来源话题相同
     external_forwards: Optional[List[Union[UDPForward, HttpCallback]]] = (
         None  # 转发到外部
     )
@@ -431,9 +435,17 @@ class MatchConfig(BaseJSONConfig):
             return self.chat_id == chat.id
         return self.chat_id == chat.username
 
+    def match_thread(self, message: "Message") -> bool:
+        """若配置了 thread_id，则只匹配对应话题的消息。"""
+        if self.thread_id is None:
+            return True
+        return message.message_thread_id == self.thread_id
+
     def match(self, message: "Message"):
-        return self.match_chat(message.chat) and bool(
-            self.match_user(message) and self.match_text(message.text)
+        return (
+            self.match_chat(message.chat)
+            and self.match_thread(message)
+            and bool(self.match_user(message) and self.match_text(message.text))
         )
 
     def get_send_text(self, text: str) -> str:

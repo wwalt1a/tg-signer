@@ -115,3 +115,55 @@ class TestMatchConfig:
             str(excinfo.value)
             == f"{config}: 消息文本: 「hello world」匹配成功但未能捕获关键词, 请检查正则表达式"
         )
+
+    # ---- 话题 Thread ID 过滤测试 ----
+
+    @pytest.mark.parametrize(
+        "cfg_thread_id, msg_thread_id, expected",
+        [
+            # thread_id=None 时匹配所有话题（包括普通消息和话题消息）
+            (None, None, True),
+            (None, 100, True),
+            (None, 200, True),
+            # thread_id 配置后只匹配对应话题
+            (100, 100, True),
+            (100, 200, False),
+            (100, None, False),
+        ],
+    )
+    def test_match_thread(self, cfg_thread_id, msg_thread_id, expected):
+        config = MatchConfig(
+            chat_id=123,
+            rule="all",
+            thread_id=cfg_thread_id,
+        )
+        message = MagicMock()
+        message.message_thread_id = msg_thread_id
+        assert config.match_thread(message) == expected
+
+    def test_match_with_thread_id_filters_correctly(self):
+        """完整的 match() 调用也能正确过滤话题消息。"""
+        config = MatchConfig(
+            chat_id=123,
+            rule="all",
+            thread_id=100,
+        )
+        chat = MagicMock()
+        chat.id = 123
+        chat.username = None
+
+        # 匹配相同话题
+        msg_match = MagicMock()
+        msg_match.chat = chat
+        msg_match.message_thread_id = 100
+        msg_match.from_user = None
+        msg_match.text = "anything"
+        assert config.match(msg_match) is True
+
+        # 不匹配其他话题
+        msg_other = MagicMock()
+        msg_other.chat = chat
+        msg_other.message_thread_id = 999
+        msg_other.from_user = None
+        msg_other.text = "anything"
+        assert config.match(msg_other) is False

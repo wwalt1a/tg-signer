@@ -496,16 +496,20 @@ class BaseUserWorker(Generic[ConfigT]):
         return result
 
     async def send_message(
-        self, chat_id: Union[int, str], text: str, delete_after: int = None, **kwargs
+        self, chat_id: Union[int, str], text: str, delete_after: int = None,
+        message_thread_id: int = None, **kwargs
     ):
         """
         发送文本消息
         :param chat_id:
         :param text:
         :param delete_after: 秒, 发送消息后进行删除，``None`` 表示不删除, ``0`` 表示立即删除.
+        :param message_thread_id: 话题 Thread ID，发送到指定话题
         :param kwargs:
         :return:
         """
+        if message_thread_id is not None:
+            kwargs["message_thread_id"] = message_thread_id
         message = await self._call_telegram_api(
             "messages.SendMessage",
             lambda: self.app.send_message(chat_id, text, **kwargs),
@@ -525,6 +529,7 @@ class BaseUserWorker(Generic[ConfigT]):
         chat_id: Union[int, str],
         emoji: str = "🎲",
         delete_after: int = None,
+        message_thread_id: int = None,
         **kwargs,
     ):
         """
@@ -532,6 +537,7 @@ class BaseUserWorker(Generic[ConfigT]):
         :param chat_id:
         :param emoji: Should be one of "🎲", "🎯", "🏀", "⚽", "🎳", or "🎰".
         :param delete_after:
+        :param message_thread_id: 话题 Thread ID，发送到指定话题
         :param kwargs:
         :return:
         """
@@ -541,6 +547,8 @@ class BaseUserWorker(Generic[ConfigT]):
                 f"Warning, emoji should be one of {', '.join(DICE_EMOJIS)}",
                 level="WARNING",
             )
+        if message_thread_id is not None:
+            kwargs["message_thread_id"] = message_thread_id
         message = await self._call_telegram_api(
             "messages.SendMedia",
             lambda: self.app.send_dice(chat_id, emoji, **kwargs),
@@ -724,6 +732,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         input_ = UserInput(numbering_lang="chinese_simple")
         chat_id = int(input_("Chat ID（登录时最近对话输出中的ID）: "))
         name = input_("Chat名称（可选）: ")
+        thread_id_str = input_("话题 Thread ID（可选，仅群聊话题模式需要，直接回车跳过）: ").strip()
+        thread_id = int(thread_id_str) if thread_id_str else None
         actions = self._ask_actions(input_)
         delete_after = (
             input_(
@@ -736,6 +746,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         cfgs = {
             "chat_id": chat_id,
             "name": name,
+            "thread_id": thread_id,
             "delete_after": delete_after,
             "actions": actions,
         }
@@ -917,24 +928,28 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         return await self.run(num_of_dialogs, only_once=True, force_rerun=True)
 
     async def send_text(
-        self, chat_id: int, text: str, delete_after: int = None, **kwargs
+        self, chat_id: int, text: str, delete_after: int = None,
+        message_thread_id: int = None, **kwargs
     ):
         if self.user is None:
             await self.login(print_chat=False)
         async with self.app:
-            await self.send_message(chat_id, text, delete_after, **kwargs)
+            await self.send_message(chat_id, text, delete_after,
+                                    message_thread_id=message_thread_id, **kwargs)
 
     async def send_dice_cli(
         self,
         chat_id: Union[str, int],
         emoji: str = "🎲",
         delete_after: int = None,
+        message_thread_id: int = None,
         **kwargs,
     ):
         if self.user is None:
             await self.login(print_chat=False)
         async with self.app:
-            await self.send_dice(chat_id, emoji, delete_after, **kwargs)
+            await self.send_dice(chat_id, emoji, delete_after,
+                                 message_thread_id=message_thread_id, **kwargs)
 
     async def _on_message(self, client: Client, message: Message):
         chats = self.context.sign_chats.get(message.chat.id)
@@ -1027,9 +1042,15 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
 
     async def wait_for(self, chat: SignChatV3, action: ActionT, timeout=10):
         if isinstance(action, SendTextAction):
-            return await self.send_message(chat.chat_id, action.text, chat.delete_after)
+            return await self.send_message(
+                chat.chat_id, action.text, chat.delete_after,
+                message_thread_id=chat.thread_id,
+            )
         elif isinstance(action, SendDiceAction):
-            return await self.send_dice(chat.chat_id, action.dice, chat.delete_after)
+            return await self.send_dice(
+                chat.chat_id, action.dice, chat.delete_after,
+                message_thread_id=chat.thread_id,
+            )
         self.context.waiter.add(chat.chat_id)
         start = time.perf_counter()
         last_message = None
@@ -1135,6 +1156,8 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         chat_id = (input_("Chat ID（登录时最近对话输出中的ID）: ")).strip()
         if not chat_id.startswith("@"):
             chat_id = int(chat_id)
+        thread_id_str = input_("话题 Thread ID（可选，仅监控特定群聊话题时填写，直接回车跳过）: ").strip()
+        thread_id = int(thread_id_str) if thread_id_str else None
         rules = ["exact", "contains", "regex", "all"]
         while rule := (input_(f"匹配规则({', '.join(rules)}): ") or "exact"):
             if rule in rules:
@@ -1187,9 +1210,14 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             ).strip()
             if forward_to_chat_id and not forward_to_chat_id.startswith("@"):
                 forward_to_chat_id = int(forward_to_chat_id)
+            forward_to_thread_id_str = input_(
+                "转发到该话题 Thread ID（可选，不填则与来源话题相同，直接回车跳过）: "
+            ).strip()
+            forward_to_thread_id = int(forward_to_thread_id_str) if forward_to_thread_id_str else None
         else:
             delete_after = None
             forward_to_chat_id = None
+            forward_to_thread_id = None
 
         push_via_server_chan = (
             input_("是否通过Server酱推送消息(y/N): ") or "n"
@@ -1230,6 +1258,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         return MatchConfig.model_validate(
             {
                 "chat_id": chat_id,
+                "thread_id": thread_id,
                 "rule": rule,
                 "rule_value": rule_value,
                 "from_user_ids": from_user_ids,
@@ -1240,6 +1269,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 "send_text_search_regex": send_text_search_regex,
                 "delete_after": delete_after,
                 "forward_to_chat_id": forward_to_chat_id,
+                "forward_to_thread_id": forward_to_thread_id,
                 "push_via_server_chan": push_via_server_chan,
                 "server_chan_send_key": server_chan_send_key,
                 "external_forwards": external_forwards,
@@ -1327,11 +1357,18 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                     self.log("发送内容为空", level="WARNING")
                 else:
                     forward_to_chat_id = match_cfg.forward_to_chat_id or message.chat.id
-                    self.log(f"发送文本：{send_text}至{forward_to_chat_id}")
+                    # 确定目标话题：优先用 forward_to_thread_id，其次继承来源消息中的话题
+                    forward_thread_id = match_cfg.forward_to_thread_id
+                    if forward_thread_id is None and match_cfg.forward_to_chat_id is None:
+                        # 回复到原始聊天，继承来源话题
+                        forward_thread_id = message.message_thread_id
+                    self.log(f"发送文本：{send_text}至{forward_to_chat_id}" +
+                             (f"（话题 {forward_thread_id}）" if forward_thread_id else ""))
                     await self.send_message(
                         forward_to_chat_id,
                         send_text,
                         delete_after=match_cfg.delete_after,
+                        message_thread_id=forward_thread_id,
                     )
 
                 if match_cfg.push_via_server_chan:
