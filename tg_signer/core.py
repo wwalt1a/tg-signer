@@ -1414,8 +1414,21 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         self.app.add_handler(
             MessageHandler(self.on_message, filters.text & filters.chat(cfg.chat_ids)),
         )
+
+        async def _ignore_peer_errors(client, e, update):
+            if isinstance(e, (errors.ChannelInvalid, errors.PeerIdInvalid)):
+                return
+            logger.exception(e)
+
+        self.app.set_error_handler(_ignore_peer_errors)
+
         async with self.app:
             self.log("开始监控...")
+            for chat_id in cfg.chat_ids:
+                try:
+                    await self.app.resolve_peer(chat_id)
+                except Exception:
+                    pass
             await idle()
 
 
