@@ -1441,12 +1441,6 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             MessageHandler(self.on_message),
         )
 
-        async def _ignore_peer_errors(client, e, update):
-            if isinstance(e, (errors.ChannelInvalid, errors.PeerIdInvalid)):
-                return
-            logger.exception(e)
-
-        self.app.set_error_handler(_ignore_peer_errors)
 
         async with self.app:
             self.log("开始监控...")
