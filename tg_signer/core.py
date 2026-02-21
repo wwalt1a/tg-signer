@@ -58,6 +58,23 @@ from tg_signer.config import (
     UDPForward,
 )
 
+# --- 深度稳定性补丁 (Deep Stability Patch) ---
+# 1. 运行时屏蔽 Pyrogram 内核解析错误 (Monkey Patch)
+# 解决他人回复已失效/无权访问频道消息导致的 ChannelInvalid 崩溃
+_original_parse_message = Message._parse_message
+
+
+async def _patched_parse_message(*args, **kwargs):
+    try:
+        return await _original_parse_message(*args, **kwargs)
+    except (errors.ChannelInvalid, errors.PeerIdInvalid):
+        # 如果解析失败，返回 None 以跳过这条消息的后续处理，而不是崩溃
+        return None
+
+
+Message._parse_message = _patched_parse_message
+# ----------------------------------------
+
 from .ai_tools import AITools, OpenAIConfigManager
 from .notification.server_chan import sc_send
 from .utils import UserInput, print_to_user
@@ -142,6 +159,12 @@ class Client(BaseClient):
             if _CLIENT_REFS[self.key] == 1:
                 try:
                     await self.start()
+                    # 2. 开启 SQLite WAL 模式以支持并发读写，彻底解决 database is locked
+                    try:
+                        await self.storage.conn.execute("PRAGMA journal_mode=WAL")
+                        await self.storage.conn.execute("PRAGMA busy_timeout=30000")
+                    except Exception:
+                        pass
                 except ConnectionError:
                     pass
             return self
@@ -1350,6 +1373,9 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 )
 
     async def on_message(self, client, message: Message):
+        # 3. 增加监控调试日志，帮助排查 Thread ID 和关键字匹配问题
+        self.log(f"DEBUG: 收到消息 - Chat: {message.chat.id}, Topic: {message.message_thread_id}, From: {message.from_user.id if message.from_user else 'None'}, Text: {message.text[:50]}...")
+        
         for match_cfg in self.config.match_cfgs:
             if not match_cfg.match(message):
                 continue
