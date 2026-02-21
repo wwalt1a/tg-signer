@@ -181,7 +181,7 @@ class Client(BaseClient):
                         except Exception:
                             pass
                         break
-                    except (errors.OSError, errors.SlowModeWait, Exception) as e:
+                    except (OSError, errors.SlowModeWait, Exception) as e:
                         if "database is locked" in str(e).lower() and i < max_retries - 1:
                             wait_time = (i + 1) * 2 + random.random()
                             logger.warning(f"数据库被锁定，{wait_time:.1f}秒后重试第 {i+1} 次...")
