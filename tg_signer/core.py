@@ -1197,6 +1197,8 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             )
 
         if default_send_text or ai_reply or send_text_search_regex:
+            delay_str = input_("响应延迟（秒，匹配后等待多久再发送，直接回车则不延迟）: ").strip()
+            delay = float(delay_str) if delay_str else 0
             delete_after = (
                 input_(
                     "发送消息后等待N秒进行删除（'0'表示立即删除, 不需要删除直接回车）， N: "
@@ -1215,6 +1217,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             ).strip()
             forward_to_thread_id = int(forward_to_thread_id_str) if forward_to_thread_id_str else None
         else:
+            delay = 0
             delete_after = None
             forward_to_chat_id = None
             forward_to_thread_id = None
@@ -1267,6 +1270,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 "ai_reply": ai_reply,
                 "ai_prompt": ai_prompt,
                 "send_text_search_regex": send_text_search_regex,
+                "delay": delay,
                 "delete_after": delete_after,
                 "forward_to_chat_id": forward_to_chat_id,
                 "forward_to_thread_id": forward_to_thread_id,
@@ -1350,6 +1354,9 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             if not match_cfg.match(message):
                 continue
             self.log(f"匹配到监控项：{match_cfg}")
+            if match_cfg.delay > 0:
+                self.log(f"延迟 {match_cfg.delay} 秒后回复...")
+                await asyncio.sleep(match_cfg.delay)
             await self.forward_to_external(match_cfg, message)
             try:
                 send_text = await self.get_send_text(match_cfg, message)
