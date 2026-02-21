@@ -1374,7 +1374,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
 
     async def on_message(self, client, message: Message):
         # 3. 增加监控调试日志，帮助排查 Thread ID 和关键字匹配问题
-        self.log(f"DEBUG: 收到消息 - Chat: {message.chat.id}, Topic: {message.message_thread_id}, From: {message.from_user.id if message.from_user else 'None'}, Text: {message.text[:50]}...")
+        self.log(f"DEBUG: 收到消息 - Chat: {message.chat.id}, Topic: {message.message_thread_id}, From: {message.from_user.id if message.from_user else 'None'}, Text: {(message.text or '')[:50]}...")
         
         for match_cfg in self.config.match_cfgs:
             if not match_cfg.match(message):
