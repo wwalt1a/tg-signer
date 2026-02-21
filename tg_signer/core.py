@@ -1403,11 +1403,11 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                     forward_to_chat_id = match_cfg.forward_to_chat_id or message.chat.id
                     # 确定目标话题：优先用 forward_to_thread_id，其次继承来源消息中的话题
                     forward_thread_id = match_cfg.forward_to_thread_id
-                    if forward_thread_id is None and match_cfg.forward_to_chat_id is None:
+                    if forward_thread_id is None and not match_cfg.forward_to_chat_id:
                         # 回复到原始聊天，继承来源话题
                         forward_thread_id = message.message_thread_id
                     self.log(f"发送文本：{send_text}至{forward_to_chat_id}" +
-                             (f"（话题 {forward_thread_id}）" if forward_thread_id else ""))
+                             (f"（话题 {forward_thread_id}）" if forward_thread_id is not None else ""))
                     await self.send_message(
                         forward_to_chat_id,
                         send_text,
