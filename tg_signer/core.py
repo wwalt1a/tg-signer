@@ -539,12 +539,17 @@ class BaseUserWorker(Generic[ConfigT]):
         )
         if delete_after is not None:
             self.log(
-                f"Message「{text}」 to {chat_id} will be deleted after {delete_after} seconds."
+                f"消息「{text[:20]}...」将在 {delete_after} 秒后被删除。"
             )
-            self.log("Waiting...")
             await asyncio.sleep(delete_after)
-            await self._call_telegram_api("messages.DeleteMessages", message.delete)
-            self.log(f"Message「{text}」 to {chat_id} deleted!")
+            try:
+                await self._call_telegram_api(
+                    "messages.DeleteMessages",
+                    lambda: self.app.delete_messages(chat_id, message.id)
+                )
+                self.log(f"消息「{text[:20]}...」已完成定时删除。")
+            except Exception as e:
+                self.log(f"定时删除消息失败: {e}", level="WARNING")
         return message
 
     async def send_dice(
@@ -578,12 +583,17 @@ class BaseUserWorker(Generic[ConfigT]):
         )
         if message and delete_after is not None:
             self.log(
-                f"Dice「{emoji}」 to {chat_id} will be deleted after {delete_after} seconds."
+                f"骰子/媒体「{emoji}」将在 {delete_after} 秒后被删除。"
             )
-            self.log("Waiting...")
             await asyncio.sleep(delete_after)
-            await self._call_telegram_api("messages.DeleteMessages", message.delete)
-            self.log(f"Dice「{emoji}」 to {chat_id} deleted!")
+            try:
+                await self._call_telegram_api(
+                    "messages.DeleteMessages",
+                    lambda: self.app.delete_messages(chat_id, message.id)
+                )
+                self.log(f"骰子/媒体「{emoji}」已完成定时删除。")
+            except Exception as e:
+                self.log(f"定时删除骰子/媒体失败: {e}", level="WARNING")
         return message
 
     async def search_members(
@@ -916,16 +926,17 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 return False
             return True
 
+        self.log(f"为以下Chat添加消息回调处理函数：{chat_ids}")
+        self.app.add_handler(
+            MessageHandler(self.on_message, filters.chat(chat_ids))
+        )
+        self.app.add_handler(
+            EditedMessageHandler(self.on_edited_message, filters.chat(chat_ids))
+        )
         while True:
-            self.log(f"为以下Chat添加消息回调处理函数：{chat_ids}")
-            self.app.add_handler(
-                MessageHandler(self.on_message, filters.chat(chat_ids))
-            )
-            self.app.add_handler(
-                EditedMessageHandler(self.on_edited_message, filters.chat(chat_ids))
-            )
             try:
                 async with self.app:
+                    config = self.load_config(self.cfg_cls)  # 循环内加载，配置实时生效
                     now = get_now()
                     self.log(f"当前时间: {now}")
                     now_date_str = str(now.date())
