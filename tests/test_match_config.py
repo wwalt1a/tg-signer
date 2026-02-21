@@ -51,6 +51,11 @@ class TestMatchConfig:
             ("exact", "hello", "HELLO", True, True),
             ("contains", "hello", "HELLO WORLD", True, True),
             ("regex", r"\bhello\b", "HELLO WORLD", True, True),
+            # None text handling (fixed bug)
+            ("all", "any", None, True, True),
+            ("exact", "hello", None, True, False),
+            ("contains", "hello", None, True, False),
+            ("regex", "hello", None, True, False),
         ],
     )
     def test_match_text(self, rule, rule_value, text, ignore_case, expected):

@@ -416,6 +416,8 @@ class MatchConfig(BaseJSONConfig):
         """
         根据`rule`校验`text`是否匹配
         """
+        if text is None:
+            return self.rule == "all"
         rule_value = self.rule_value
         if self.rule == "all":
             return True
