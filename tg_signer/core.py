@@ -181,8 +181,10 @@ class Client(BaseClient):
                         except Exception:
                             pass
                         break
-                    except (OSError, errors.SlowModeWait, Exception) as e:
-                        if "database is locked" in str(e).lower() and i < max_retries - 1:
+                    except (OSError, Exception) as e:
+                        # 检查 e 是否有 __name__ 属性，或者直接转字符串匹配
+                        err_msg = str(e).lower()
+                        if "database is locked" in err_msg and i < max_retries - 1:
                             wait_time = (i + 1) * 2 + random.random()
                             logger.warning(f"数据库被锁定，{wait_time:.1f}秒后重试第 {i+1} 次...")
                             await asyncio.sleep(wait_time)
