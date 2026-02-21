@@ -157,16 +157,37 @@ class Client(BaseClient):
         async with lock:
             _CLIENT_REFS[self.key] += 1
             if _CLIENT_REFS[self.key] == 1:
-                try:
-                    await self.start()
-                    # 2. 开启 SQLite WAL 模式以支持并发读写，彻底解决 database is locked
+                # 针对多进程并发导致的 database is locked 增加指数退避重试
+                max_retries = 5
+                for i in range(max_retries):
                     try:
-                        await self.storage.conn.execute("PRAGMA journal_mode=WAL")
-                        await self.storage.conn.execute("PRAGMA busy_timeout=30000")
-                    except Exception:
-                        pass
-                except ConnectionError:
-                    pass
+                        # 在启动前尝试预先开启 WAL 模式（如果文件已存在）
+                        try:
+                            db_path = f"{self.name}.session"
+                            if os.path.exists(db_path):
+                                import sqlite3
+                                conn = sqlite3.connect(db_path, timeout=10)
+                                conn.execute("PRAGMA journal_mode=WAL")
+                                conn.execute("PRAGMA busy_timeout=30000")
+                                conn.close()
+                        except Exception:
+                            pass
+
+                        await self.start()
+                        # 启动后再次确保 WAL 模式开启
+                        try:
+                            await self.storage.conn.execute("PRAGMA journal_mode=WAL")
+                            await self.storage.conn.execute("PRAGMA busy_timeout=30000")
+                        except Exception:
+                            pass
+                        break
+                    except (errors.OSError, errors.SlowModeWait, Exception) as e:
+                        if "database is locked" in str(e).lower() and i < max_retries - 1:
+                            wait_time = (i + 1) * 2 + random.random()
+                            logger.warning(f"数据库被锁定，{wait_time:.1f}秒后重试第 {i+1} 次...")
+                            await asyncio.sleep(wait_time)
+                        else:
+                            raise e
             return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
