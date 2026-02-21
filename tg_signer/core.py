@@ -1438,7 +1438,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             self.ensure_ai_cfg()
 
         self.app.add_handler(
-            MessageHandler(self.on_message, filters.text & filters.chat(cfg.chat_ids)),
+            MessageHandler(self.on_message),
         )
 
         async def _ignore_peer_errors(client, e, update):
