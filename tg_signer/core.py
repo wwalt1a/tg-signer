@@ -1405,10 +1405,16 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 )
 
     async def on_message(self, client, message: Message):
-        # 3. 增加监控调试日志，帮助排查 Thread ID 和关键字匹配问题
-        self.log(f"DEBUG: 收到消息 - Chat: {message.chat.id}, Topic: {message.message_thread_id}, From: {message.from_user.id if message.from_user else 'None'}, Text: {(message.text or '')[:50]}...")
-        
         for match_cfg in self.config.match_cfgs:
+            # 增加对 Chat ID 和 Thread ID 的预校验，减少不相关的调试日志输出
+            if not match_cfg.match_chat(message.chat):
+                continue
+            if not match_cfg.match_thread(message):
+                continue
+
+            # 仅在话题匹配时输出调试日志，解决日志中大量 Topic: None 的混淆
+            self.log(f"DEBUG: 收到匹配话题的消息 - Chat: {message.chat.id}, Topic: {message.message_thread_id}, From: {message.from_user.id if message.from_user else 'None'}, Text: {(message.text or '')[:50]}...")
+
             if not match_cfg.match(message):
                 continue
             self.log(f"匹配到监控项：{match_cfg}")
@@ -1475,14 +1481,23 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         )
 
 
-        async with self.app:
-            self.log("开始监控...")
-            for chat_id in cfg.chat_ids:
-                try:
-                    await self.app.resolve_peer(chat_id)
-                except Exception:
-                    pass
-            await idle()
+        while True:
+            try:
+                async with self.app:
+                    self.log("开始监控...")
+                    for chat_id in cfg.chat_ids:
+                        try:
+                            await self.app.resolve_peer(chat_id)
+                        except Exception:
+                            pass
+                    await idle()
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                break
+            except Exception as e:
+                # 针对 TimeoutError 或网络闪断增加自动重连
+                wait_time = 10 + random.random() * 5
+                self.log(f"监控连接异常中断: {e}，将在 {wait_time:.1f} 秒后尝试重新连接...", level="WARNING")
+                await asyncio.sleep(wait_time)
 
 
 class _UDPProtocol(asyncio.DatagramProtocol):
