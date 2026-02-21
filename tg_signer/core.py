@@ -1449,7 +1449,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             self.ensure_ai_cfg()
 
         self.app.add_handler(
-            MessageHandler(self.on_message),
+            MessageHandler(self.on_message, filters.chat(cfg.chat_ids)),
         )
 
 
