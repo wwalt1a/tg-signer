@@ -42,6 +42,7 @@ from pyrogram.types import (
 )
 
 from tg_signer.config import (
+    ActionGroup,
     ActionT,
     BaseJSONConfig,
     ChooseOptionByImageAction,
@@ -875,6 +876,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 sign_record = json.load(fp)
         return sign_record
 
+    def _save_sign_record(self, sign_record: dict):
+        with open(self.sign_record_file, "w", encoding="utf-8") as fp:
+            json.dump(sign_record, fp)
+
     async def sign_a_chat(
         self,
         chat: SignChatV3,
@@ -886,6 +891,137 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             self.log(f"处理完成: {action}")
             self.context.waiting_message = None
             await asyncio.sleep(chat.action_interval)
+
+    async def _run_action_group_loop(
+        self,
+        chat: SignChatV3,
+        group_index: int,
+        group: "ActionGroup",
+        default_sign_at: str,
+        default_random_seconds: int,
+        sign_record: dict,
+        only_once: bool,
+        force_rerun: bool,
+    ):
+        """单个 ActionGroup 的独立调度循环。"""
+        effective_sign_at = self._validate_sign_at(group.sign_at or default_sign_at)
+        effective_random_seconds = group.random_seconds or default_random_seconds
+        record_key_prefix = f"g_{chat.chat_id}_{group_index}"
+
+        # 构造一个仅含本 group actions 的临时 SignChatV3 用于执行
+        group_chat = chat.model_copy(
+            update={
+                "actions": group.actions,
+                "action_interval": group.action_interval,
+                "action_groups": None,
+            }
+        )
+        self.context.sign_chats[chat.chat_id].append(group_chat)
+
+        while True:
+            now = get_now()
+            record_key = f"{record_key_prefix}_{now.date()}"
+
+            def need_run():
+                if force_rerun:
+                    return True
+                if record_key not in sign_record:
+                    return True
+                _last_at = datetime.fromisoformat(sign_record[record_key])
+                self.log(f"[Group {group_index}] 上次执行时间: {_last_at}")
+                _cron_it = croniter(effective_sign_at, _last_at)
+                _next = _cron_it.next(datetime)
+                if _next > now:
+                    self.log(f"[Group {group_index}] 未到下次执行时间，无需执行")
+                    return False
+                return True
+
+            if need_run():
+                self.log(f"[Group {group_index}] 开始执行 chat={chat.chat_id}")
+                try:
+                    await self.sign_a_chat(group_chat)
+                except errors.RPCError as _e:
+                    self.log(
+                        f"[Group {group_index}] 执行失败: {_e}", level="WARNING"
+                    )
+                    logger.warning(_e, exc_info=True)
+                sign_record[record_key] = now.isoformat()
+                self._save_sign_record(sign_record)
+
+            if only_once:
+                break
+
+            cron_it = croniter(effective_sign_at, get_now())
+            next_run: datetime = cron_it.next(datetime) + timedelta(
+                seconds=random.randint(0, int(effective_random_seconds))
+            )
+            self.log(f"[Group {group_index}] chat={chat.chat_id} 下次运行: {next_run}")
+            await asyncio.sleep((next_run - get_now()).total_seconds())
+
+    async def _run_with_action_groups(
+        self,
+        num_of_dialogs: int = 20,
+        only_once: bool = False,
+        force_rerun: bool = False,
+    ):
+        """当存在 action_groups 时，在单一 client 连接内并发调度所有 groups。"""
+        if self.user is None:
+            await self.login(num_of_dialogs, print_chat=True)
+
+        config = self.load_config(self.cfg_cls)
+        if config.requires_ai:
+            self.ensure_ai_cfg()
+
+        sign_record = self.load_sign_record()
+        chat_ids = [c.chat_id for c in config.chats]
+
+        self.log(f"[ActionGroups] 为以下Chat添加消息回调处理函数：{chat_ids}")
+        self.app.add_handler(
+            MessageHandler(self.on_message, filters.chat(chat_ids))
+        )
+        self.app.add_handler(
+            EditedMessageHandler(self.on_edited_message, filters.chat(chat_ids))
+        )
+
+        async with self.app:
+            tasks = []
+            for chat in config.chats:
+                if chat.action_groups:
+                    for i, group in enumerate(chat.action_groups):
+                        tasks.append(
+                            self._run_action_group_loop(
+                                chat=chat,
+                                group_index=i,
+                                group=group,
+                                default_sign_at=config.sign_at,
+                                default_random_seconds=config.random_seconds,
+                                sign_record=sign_record,
+                                only_once=only_once,
+                                force_rerun=force_rerun,
+                            )
+                        )
+                elif chat.actions:
+                    # 无 action_groups 的 chat：用 config.sign_at 包装成单 group
+                    legacy_group = ActionGroup(
+                        sign_at=config.sign_at,
+                        actions=chat.actions,
+                        action_interval=chat.action_interval,
+                        random_seconds=config.random_seconds,
+                    )
+                    tasks.append(
+                        self._run_action_group_loop(
+                            chat=chat,
+                            group_index=0,
+                            group=legacy_group,
+                            default_sign_at=config.sign_at,
+                            default_random_seconds=config.random_seconds,
+                            sign_record=sign_record,
+                            only_once=only_once,
+                            force_rerun=force_rerun,
+                        )
+                    )
+            if tasks:
+                await asyncio.gather(*tasks)
 
     async def run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
@@ -909,10 +1045,16 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
     async def normal_run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
     ):
+        # 若存在 action_groups，进入多 group 并发调度模式
+        config = self.load_config(self.cfg_cls)
+        if any(c.action_groups for c in config.chats):
+            return await self._run_with_action_groups(
+                num_of_dialogs, only_once=only_once, force_rerun=force_rerun
+            )
+
         if self.user is None:
             await self.login(num_of_dialogs, print_chat=True)
 
-        config = self.load_config(self.cfg_cls)
         if config.requires_ai:
             self.ensure_ai_cfg()
 
@@ -932,8 +1074,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 self.context.chat_messages[chat.chat_id].clear()
                 await asyncio.sleep(config.sign_interval)
             sign_record[str(now.date())] = now.isoformat()
-            with open(self.sign_record_file, "w", encoding="utf-8") as fp:
-                json.dump(sign_record, fp)
+            self._save_sign_record(sign_record)
 
         def need_sign(last_date_str):
             if force_rerun:

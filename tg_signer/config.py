@@ -224,14 +224,24 @@ ActionT: TypeAlias = Union[
 ]
 
 
+class ActionGroup(BaseModel):
+    """一组动作的独立定时配置，可为每组 actions 单独指定触发时间。"""
+
+    sign_at: Optional[str] = None  # None 表示继承 SignConfigV3.sign_at
+    actions: List[ActionT]
+    action_interval: float = 1.0  # 本组内 actions 的间隔，单位秒
+    random_seconds: int = 0  # 本组的随机延迟秒数，0 表示继承父级
+
+
 class SignChatV3(BaseJSONConfig):
     version: ClassVar = 3
     chat_id: int
     name: Optional[str] = None
     thread_id: Optional[int] = None  # 话题 Thread ID（Forum 模式的超级群组话题）
     delete_after: Optional[int] = None
-    actions: List[ActionT]
+    actions: List[ActionT] = []
     action_interval: float = 1  # actions的间隔时间，单位秒
+    action_groups: Optional[List[ActionGroup]] = None  # 各自有独立定时的 action 分组
 
     def __repr__(self) -> str:
         return (
