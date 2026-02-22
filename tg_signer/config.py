@@ -375,6 +375,8 @@ class MatchConfig(BaseJSONConfig):
     push_via_server_chan: bool = False  # 将消息通过server酱推送
     server_chan_send_key: Optional[str] = None  # server酱的sendkey
     delay: float = 0  # 响应延迟秒数
+    send_times: int = 1  # 触发后发送消息的次数
+    send_interval: float = 1.0  # 多次发送时每次之间的间隔秒数
 
 
     def __str__(self):

@@ -1256,6 +1256,12 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         if default_send_text or ai_reply or send_text_search_regex:
             delay_str = input_("响应延迟（秒，匹配后等待多久再发送，直接回车则不延迟）: ").strip()
             delay = float(delay_str) if delay_str else 0
+            send_times_str = input_("发送次数（触发后重复发送几次，默认为1）: ").strip()
+            send_times = int(send_times_str) if send_times_str else 1
+            send_interval = 1.0
+            if send_times > 1:
+                send_interval_str = input_("多次发送时每次之间的间隔秒数（默认为1秒）: ").strip()
+                send_interval = float(send_interval_str) if send_interval_str else 1.0
             delete_after = (
                 input_(
                     "发送消息后等待N秒进行删除（'0'表示立即删除, 不需要删除直接回车）， N: "
@@ -1275,6 +1281,8 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             forward_to_thread_id = int(forward_to_thread_id_str) if forward_to_thread_id_str else None
         else:
             delay = 0
+            send_times = 1
+            send_interval = 1.0
             delete_after = None
             forward_to_chat_id = None
             forward_to_thread_id = None
@@ -1328,6 +1336,8 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 "ai_prompt": ai_prompt,
                 "send_text_search_regex": send_text_search_regex,
                 "delay": delay,
+                "send_times": send_times,
+                "send_interval": send_interval,
                 "delete_after": delete_after,
                 "forward_to_chat_id": forward_to_chat_id,
                 "forward_to_thread_id": forward_to_thread_id,
@@ -1435,14 +1445,19 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                     if forward_thread_id is None and not match_cfg.forward_to_chat_id:
                         # 回复到原始聊天，继承来源话题
                         forward_thread_id = message.message_thread_id
+                    send_times = max(1, match_cfg.send_times)
                     self.log(f"发送文本：{send_text}至{forward_to_chat_id}" +
-                             (f"（话题 {forward_thread_id}）" if forward_thread_id is not None else ""))
-                    await self.send_message(
-                        forward_to_chat_id,
-                        send_text,
-                        delete_after=match_cfg.delete_after,
-                        message_thread_id=forward_thread_id,
-                    )
+                             (f"（话题 {forward_thread_id}）" if forward_thread_id is not None else "") +
+                             (f"，共发送 {send_times} 次" if send_times > 1 else ""))
+                    for i in range(send_times):
+                        if i > 0 and match_cfg.send_interval > 0:
+                            await asyncio.sleep(match_cfg.send_interval)
+                        await self.send_message(
+                            forward_to_chat_id,
+                            send_text,
+                            delete_after=match_cfg.delete_after,
+                            message_thread_id=forward_thread_id,
+                        )
 
                 if match_cfg.push_via_server_chan:
                     server_chan_send_key = (
