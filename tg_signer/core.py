@@ -940,7 +940,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 self.log(f"[Group {group_index}] 开始执行 chat={chat.chat_id}")
                 try:
                     await self.sign_a_chat(group_chat)
-                except errors.RPCError as _e:
+                except (errors.RPCError, OSError, ConnectionError, TimeoutError) as _e:
                     self.log(
                         f"[Group {group_index}] 执行失败: {_e}", level="WARNING"
                     )
@@ -983,45 +983,59 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             EditedMessageHandler(self.on_edited_message, filters.chat(chat_ids))
         )
 
-        async with self.app:
-            tasks = []
-            for chat in config.chats:
-                if chat.action_groups:
-                    for i, group in enumerate(chat.action_groups):
-                        tasks.append(
-                            self._run_action_group_loop(
-                                chat=chat,
-                                group_index=i,
-                                group=group,
-                                default_sign_at=config.sign_at,
-                                default_random_seconds=config.random_seconds,
-                                sign_record=sign_record,
-                                only_once=only_once,
-                                force_rerun=force_rerun,
+        while True:
+            try:
+                async with self.app:
+                    self.log("[ActionGroups] 开始连接...")
+                    tasks = []
+                    for chat in config.chats:
+                        if chat.action_groups:
+                            for i, group in enumerate(chat.action_groups):
+                                tasks.append(
+                                    self._run_action_group_loop(
+                                        chat=chat,
+                                        group_index=i,
+                                        group=group,
+                                        default_sign_at=config.sign_at,
+                                        default_random_seconds=config.random_seconds,
+                                        sign_record=sign_record,
+                                        only_once=only_once,
+                                        force_rerun=force_rerun,
+                                    )
+                                )
+                        elif chat.actions:
+                            # 无 action_groups 的 chat：用 config.sign_at 包装成单 group
+                            legacy_group = ActionGroup(
+                                sign_at=config.sign_at,
+                                actions=chat.actions,
+                                action_interval=chat.action_interval,
+                                random_seconds=config.random_seconds,
                             )
-                        )
-                elif chat.actions:
-                    # 无 action_groups 的 chat：用 config.sign_at 包装成单 group
-                    legacy_group = ActionGroup(
-                        sign_at=config.sign_at,
-                        actions=chat.actions,
-                        action_interval=chat.action_interval,
-                        random_seconds=config.random_seconds,
-                    )
-                    tasks.append(
-                        self._run_action_group_loop(
-                            chat=chat,
-                            group_index=0,
-                            group=legacy_group,
-                            default_sign_at=config.sign_at,
-                            default_random_seconds=config.random_seconds,
-                            sign_record=sign_record,
-                            only_once=only_once,
-                            force_rerun=force_rerun,
-                        )
-                    )
-            if tasks:
-                await asyncio.gather(*tasks)
+                            tasks.append(
+                                self._run_action_group_loop(
+                                    chat=chat,
+                                    group_index=0,
+                                    group=legacy_group,
+                                    default_sign_at=config.sign_at,
+                                    default_random_seconds=config.random_seconds,
+                                    sign_record=sign_record,
+                                    only_once=only_once,
+                                    force_rerun=force_rerun,
+                                )
+                            )
+                    if tasks:
+                        await asyncio.gather(*tasks)
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                break
+            except Exception as e:
+                wait_time = 10 + random.random() * 5
+                self.log(
+                    f"[ActionGroups] 连接异常中断: {e}，将在 {wait_time:.1f} 秒后尝试重新连接...",
+                    level="WARNING",
+                )
+                await asyncio.sleep(wait_time)
+            if only_once:
+                break
 
     async def run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
