@@ -370,6 +370,7 @@ class MatchConfig(BaseJSONConfig):
     )
     always_ignore_me: bool = False  # 总是忽略自己发送的消息
     default_send_text: Optional[str] = None  # 默认发送内容
+    click_inline_keyboard_button: Optional[str] = None  # 自动点击匹配文本的内联键盘按钮
     ai_reply: bool = False  # 是否使用AI回复
     ai_prompt: Optional[str] = None
     send_text_search_regex: Optional[str] = None  # 用正则表达式从消息中提取发送内容

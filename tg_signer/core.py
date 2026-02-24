@@ -1408,7 +1408,13 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 input_("从消息中提取发送文本的正则表达式（不需要则直接回车）: ") or None
             )
 
-        if default_send_text or ai_reply or send_text_search_regex:
+        click_inline_keyboard_button = None
+        if not default_send_text and not ai_reply:
+            click_inline_keyboard_button = (
+                input_("自动点击按钮文本（如果消息带内联键盘，包含此文本的按钮将被点击，不需要则回车）: ") or None
+            )
+
+        if default_send_text or ai_reply or send_text_search_regex or click_inline_keyboard_button:
             delay_str = input_("响应延迟（秒，匹配后等待多久再发送，直接回车则不延迟）: ").strip()
             delay = float(delay_str) if delay_str else 0
             send_times_str = input_("发送次数（触发后重复发送几次，默认为1）: ").strip()
@@ -1487,6 +1493,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 "from_user_ids": from_user_ids,
                 "always_ignore_me": always_ignore_me,
                 "default_send_text": default_send_text,
+                "click_inline_keyboard_button": click_inline_keyboard_button,
                 "ai_reply": ai_reply,
                 "ai_prompt": ai_prompt,
                 "send_text_search_regex": send_text_search_regex,
@@ -1613,6 +1620,12 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                             delete_after=match_cfg.delete_after,
                             message_thread_id=forward_thread_id,
                         )
+
+                if match_cfg.click_inline_keyboard_button:
+                    action = ClickKeyboardByTextAction(text=match_cfg.click_inline_keyboard_button)
+                    clicked = await self._click_keyboard_by_text(action, message)
+                    if not clicked:
+                        self.log(f"未能找到包含 {match_cfg.click_inline_keyboard_button} 的按钮", level="WARNING")
 
                 if match_cfg.push_via_server_chan:
                     server_chan_send_key = (
