@@ -1207,12 +1207,17 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     option_to_btn[btn.text] = btn
                     if action.text in btn.text:
                         self.log(f"点击按钮: {btn.text}")
-                        await self.request_callback_answer(
-                            self.app,
-                            message.chat.id,
-                            message.id,
-                            btn.callback_data,
-                        )
+                        try:
+                            await self.request_callback_answer(
+                                self.app,
+                                message.chat.id,
+                                message.id,
+                                btn.callback_data,
+                            )
+                        except errors.MessageDeleted:
+                            self.log("尝试点击时消息已被删除", level="DEBUG")
+                        except Exception as e:
+                            self.log(f"请求回调发生异常: {e}", level="WARNING")
                         return True
         return False
 
@@ -1630,10 +1635,13 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                         )
 
                 if match_cfg.click_inline_keyboard_button:
-                    action = ClickKeyboardByTextAction(text=match_cfg.click_inline_keyboard_button)
-                    clicked = await self._click_keyboard_by_text(action, message)
-                    if not clicked:
-                        self.log(f"未能找到包含 {match_cfg.click_inline_keyboard_button} 的按钮", level="WARNING")
+                    if message.text and ("已被抢完" in message.text or "已过期" in message.text):
+                        self.log("消息中包含「已被抢完」或「已过期」，跳过点击尝试", level="DEBUG")
+                    else:
+                        action = ClickKeyboardByTextAction(text=match_cfg.click_inline_keyboard_button)
+                        clicked = await self._click_keyboard_by_text(action, message)
+                        if not clicked:
+                            self.log(f"未能找到包含 {match_cfg.click_inline_keyboard_button} 的按钮", level="WARNING")
 
                 if match_cfg.push_via_server_chan:
                     server_chan_send_key = (
