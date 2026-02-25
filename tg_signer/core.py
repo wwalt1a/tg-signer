@@ -1376,6 +1376,10 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
     cfg_cls = MonitorConfig
     config: MonitorConfig
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._clicked_callbacks: dict[str, float] = {}
+
     def ask_one(self):
         input_ = UserInput()
         chat_id = (input_("Chat ID（登录时最近对话输出中的ID）: ")).strip()
@@ -1611,6 +1615,12 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
     async def _click_keyboard_by_text(
         self, action: ClickKeyboardByTextAction, message: Message
     ):
+        # 清理过期的回调记录 (保留 1 小时内的记录)
+        current_time = time.time()
+        expired_keys = [k for k, v in self._clicked_callbacks.items() if current_time - v > 3600]
+        for k in expired_keys:
+            del self._clicked_callbacks[k]
+
         if reply_markup := message.reply_markup:
             if isinstance(reply_markup, InlineKeyboardMarkup):
                 flat_buttons = (b for row in reply_markup.inline_keyboard for b in row)
@@ -1618,6 +1628,13 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 for btn in flat_buttons:
                     option_to_btn[btn.text] = btn
                     if action.text in btn.text:
+                        if btn.callback_data:
+                            cb_str = btn.callback_data.decode() if isinstance(btn.callback_data, bytes) else btn.callback_data
+                            if cb_str in self._clicked_callbacks:
+                                self.log(f"按钮 {btn.text} 的 callback_data={cb_str} 已经点击过，跳过", level="DEBUG")
+                                return True
+                            self._clicked_callbacks[cb_str] = current_time
+
                         self.log(f"找到匹配按钮: {btn.text} | callback_data={btn.callback_data} | url={btn.url}")
                         try:
                             if btn.callback_data:
