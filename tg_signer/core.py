@@ -1600,16 +1600,13 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         **kwargs,
     ):
         try:
-            result = await self._call_telegram_api(
-                "messages.GetBotCallbackAnswer",
-                lambda: client.request_callback_answer(
-                    chat_id, message_id, callback_data=callback_data, **kwargs
-                ),
+            result = await client.request_callback_answer(
+                chat_id, message_id, callback_data=callback_data, **kwargs
             )
             ans = getattr(result, "message", result)
             self.log(f"点击完成, 服务器返回: {ans}")
-        except (errors.BadRequest, TimeoutError) as e:
-            self.log(f"点击回调失败: {e}", level="ERROR")
+        except Exception as e:
+            self.log(f"点击回调失败: {type(e).__name__} - {e}", level="ERROR")
 
     async def _click_keyboard_by_text(
         self, action: ClickKeyboardByTextAction, message: Message
