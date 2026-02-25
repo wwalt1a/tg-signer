@@ -1379,6 +1379,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._clicked_callbacks: dict[str, float] = {}
+        self._handled_messages: dict[str, float] = {}
 
     def ask_one(self):
         input_ = UserInput()
@@ -1660,6 +1661,12 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         return False
 
     async def on_message(self, client, message: Message):
+        # 清理过期的已处理消息记录 (保留 1 小时内的记录)
+        current_time = time.time()
+        expired_handled = [k for k, v in self._handled_messages.items() if current_time - v > 3600]
+        for k in expired_handled:
+            del self._handled_messages[k]
+
         for match_cfg in self.config.match_cfgs:
             # 增加对 Chat ID 和 Thread ID 的预校验，减少不相关的调试日志输出
             if not match_cfg.match_chat(message.chat):
@@ -1673,6 +1680,13 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
 
             if not match_cfg.match(message):
                 continue
+
+            handled_key = f"{message.chat.id}_{message.id}_{id(match_cfg)}"
+            if handled_key in self._handled_messages:
+                # 已经处理过同一个消息的这条规则，防止因为编辑消息导致重复触发
+                continue
+            self._handled_messages[handled_key] = current_time
+
             self.log(f"匹配到监控项：{match_cfg}")
             if match_cfg.delay > 0:
                 self.log(f"延迟 {match_cfg.delay} 秒后回复...")
