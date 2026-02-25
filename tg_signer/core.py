@@ -1621,18 +1621,27 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 for btn in flat_buttons:
                     option_to_btn[btn.text] = btn
                     if action.text in btn.text:
-                        self.log(f"点击按钮: {btn.text}")
+                        self.log(f"找到匹配按钮: {btn.text} | callback_data={btn.callback_data} | url={btn.url}")
                         try:
-                            await self.request_callback_answer(
-                                self.app,
-                                message.chat.id,
-                                message.id,
-                                btn.callback_data,
-                            )
+                            if btn.callback_data:
+                                await self.request_callback_answer(
+                                    self.app,
+                                    message.chat.id,
+                                    message.id,
+                                    btn.callback_data,
+                                )
+                            elif btn.url:
+                                self.log(f"该按钮是 URL 按钮，无法通过 callback_data 点击: {btn.url}")
+                                # 如果是启动机器人的 deep link URL，可以尝试解析并发 start 消息
+                                if "start=" in btn.url:
+                                    bot_username = btn.url.split("?")[0].split("/")[-1]
+                                    payload = btn.url.split("start=")[-1]
+                                    self.log(f"解析到 Deep Link，尝试向 {bot_username} 发送 /start {payload}")
+                                    await self.app.send_message(bot_username, f"/start {payload}")
                         except errors.MessageDeleted:
                             self.log("尝试点击时消息已被删除", level="DEBUG")
                         except Exception as e:
-                            self.log(f"请求回调发生异常: {e}", level="WARNING")
+                            self.log(f"点击动作发生异常: {e}", level="WARNING")
                         return True
         return False
 
