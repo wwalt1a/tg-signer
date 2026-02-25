@@ -1600,15 +1600,16 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         **kwargs,
     ):
         try:
-            await self._call_telegram_api(
+            result = await self._call_telegram_api(
                 "messages.GetBotCallbackAnswer",
                 lambda: client.request_callback_answer(
                     chat_id, message_id, callback_data=callback_data, **kwargs
                 ),
             )
-            self.log("点击完成")
+            ans = getattr(result, "message", result)
+            self.log(f"点击完成, 服务器返回: {ans}")
         except (errors.BadRequest, TimeoutError) as e:
-            self.log(e, level="ERROR")
+            self.log(f"点击回调失败: {e}", level="ERROR")
 
     async def _click_keyboard_by_text(
         self, action: ClickKeyboardByTextAction, message: Message
@@ -1644,7 +1645,8 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 continue
 
             # 仅在话题匹配时输出调试日志，解决日志中大量 Topic: None 的混淆
-            self.log(f"DEBUG: 收到匹配话题的消息 - Chat: {message.chat.id}, Topic: {message.message_thread_id}, From: {message.from_user.id if message.from_user else 'None'}, Text: {(message.text or '')[:50]}...")
+            safe_text = str(message.text or "")
+            self.log(f"DEBUG: 收到匹配话题的消息 - Chat: {message.chat.id}, Topic: {message.message_thread_id}, From: {message.from_user.id if message.from_user else 'None'}, Text: {safe_text[:50]}...")
 
             if not match_cfg.match(message):
                 continue
