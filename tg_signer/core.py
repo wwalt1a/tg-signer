@@ -1677,9 +1677,11 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         # 增加判空过滤器，防止 monkey patch 返回 None 时导致的 filters.chat 崩溃
         self.app.add_handler(
             MessageHandler(self.on_message, filters.create(lambda _, __, m: m is not None) & filters.chat(cfg.chat_ids)),
+            group=1
         )
         self.app.add_handler(
-            EditedMessageHandler(self.on_edited_message, filters.create(lambda _, __, m: m is not None) & filters.chat(cfg.chat_ids)),
+            EditedMessageHandler(self.on_edited_message),
+            group=1
         )
 
 
