@@ -1660,9 +1660,13 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 logger.exception(e)
 
     async def on_edited_message(self, client, message: Message):
-        self.log(
-            f"收到来自「{message.from_user.username or message.from_user.id}」对消息的更新"
-        )
+        if message.from_user:
+            user_name = message.from_user.username or message.from_user.id
+        elif message.sender_chat:
+            user_name = message.sender_chat.title or message.sender_chat.id
+        else:
+            user_name = "Unknown"
+        self.log(f"收到来自「{user_name}」对消息的更新")
         await self.on_message(client, message)
 
     async def get_send_text(self, match_cfg: MatchConfig, message: Message) -> str:
