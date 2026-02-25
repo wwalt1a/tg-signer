@@ -1651,6 +1651,12 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             except IndexError as e:
                 logger.exception(e)
 
+    async def on_edited_message(self, client, message: Message):
+        self.log(
+            f"收到来自「{message.from_user.username or message.from_user.id}」对消息的更新"
+        )
+        await self.on_message(client, message)
+
     async def get_send_text(self, match_cfg: MatchConfig, message: Message) -> str:
         send_text = match_cfg.get_send_text(message.text)
         if match_cfg.ai_reply and match_cfg.ai_prompt:
@@ -1671,6 +1677,9 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         # 增加判空过滤器，防止 monkey patch 返回 None 时导致的 filters.chat 崩溃
         self.app.add_handler(
             MessageHandler(self.on_message, filters.create(lambda _, __, m: m is not None) & filters.chat(cfg.chat_ids)),
+        )
+        self.app.add_handler(
+            EditedMessageHandler(self.on_edited_message, filters.create(lambda _, __, m: m is not None) & filters.chat(cfg.chat_ids)),
         )
 
 
