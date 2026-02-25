@@ -1591,6 +1591,50 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                     )
                 )
 
+    async def request_callback_answer(
+        self,
+        client: Client,
+        chat_id: Union[int, str],
+        message_id: int,
+        callback_data: Union[str, bytes],
+        **kwargs,
+    ):
+        try:
+            await self._call_telegram_api(
+                "messages.GetBotCallbackAnswer",
+                lambda: client.request_callback_answer(
+                    chat_id, message_id, callback_data=callback_data, **kwargs
+                ),
+            )
+            self.log("点击完成")
+        except (errors.BadRequest, TimeoutError) as e:
+            self.log(e, level="ERROR")
+
+    async def _click_keyboard_by_text(
+        self, action: ClickKeyboardByTextAction, message: Message
+    ):
+        if reply_markup := message.reply_markup:
+            if isinstance(reply_markup, InlineKeyboardMarkup):
+                flat_buttons = (b for row in reply_markup.inline_keyboard for b in row)
+                option_to_btn: dict[str, InlineKeyboardButton] = {}
+                for btn in flat_buttons:
+                    option_to_btn[btn.text] = btn
+                    if action.text in btn.text:
+                        self.log(f"点击按钮: {btn.text}")
+                        try:
+                            await self.request_callback_answer(
+                                self.app,
+                                message.chat.id,
+                                message.id,
+                                btn.callback_data,
+                            )
+                        except errors.MessageDeleted:
+                            self.log("尝试点击时消息已被删除", level="DEBUG")
+                        except Exception as e:
+                            self.log(f"请求回调发生异常: {e}", level="WARNING")
+                        return True
+        return False
+
     async def on_message(self, client, message: Message):
         for match_cfg in self.config.match_cfgs:
             # 增加对 Chat ID 和 Thread ID 的预校验，减少不相关的调试日志输出
