@@ -473,10 +473,10 @@ class MatchConfig(BaseJSONConfig):
                 return send_text
             try:
                 send_text = m.group(1)
-                # 防钓鱼：自动清洗提取出的文本，移除开头隐式注入的 Bot 命令和数字参数
-                # 例如预防别人把真实口令设置为 "/redpack_pw 1000 5 大家好"
+                # 防钓鱼：自动清洗提取出的文本，移除开头隐式注入的 Bot 命令及其参数组合
+                # 例如预防别人把真实口令设置为 "/redpack_pw 1000 5 /buy AAPL 100 大家好"
                 if send_text and send_text.startswith("/"):
-                    send_text = re.sub(r'^/\w+(?:@[^\s]+)?(?:\s+\d+)*\s*', '', send_text)
+                    send_text = re.sub(r'^(?:/\w+(?:@[^\s]+)?(?:\s+[a-zA-Z0-9_\.\-]+)*\s*)+', '', send_text)
             except IndexError as e:
                 raise ValueError(
                     f"{self}: 消息文本: 「{text}」匹配成功但未能捕获关键词, 请检查正则表达式"
