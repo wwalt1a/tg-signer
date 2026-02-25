@@ -31,7 +31,7 @@ from pyrogram.enums import ChatMembersFilter, ChatType
 from pyrogram.handlers import EditedMessageHandler, MessageHandler
 from pyrogram.methods.utilities.idle import idle
 from pyrogram.session import Session
-from pyrogram.storage import MemoryStorage
+from pyrogram.storage import SQLiteStorage
 from pyrogram.types import (
     Chat,
     InlineKeyboardButton,
@@ -148,7 +148,12 @@ class Client(BaseClient):
         self.key = key or str(pathlib.Path(self.workdir).joinpath(self.name).resolve())
         if self.in_memory and not self.session_string:
             self.load_session_string()
-            self.storage = MemoryStorage(self.name, self.session_string)
+            self.storage = SQLiteStorage(
+                name=self.name,
+                workdir=self.workdir,
+                session_string=self.session_string,
+                in_memory=True,
+            )
 
     async def __aenter__(self):
         lock = _CLIENT_ASYNC_LOCKS.get(self.key)
@@ -489,7 +494,7 @@ class BaseUserWorker(Generic[ConfigT]):
 
                     async def load_latest_chats():
                         latest_chats = []
-                        async for dialog in app.get_dialogs(num_of_dialogs):
+                        async for dialog in app.get_dialogs(limit=num_of_dialogs):
                             chat = dialog.chat
                             latest_chats.append(
                                 {
@@ -847,23 +852,26 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             print_to_user(OPENAI_USE_PROMPT)
         return config
 
-    @classmethod
-    def _validate_sign_at(cls, sign_at_str: str) -> Optional[str]:
+    def _validate_sign_at(
+        self,
+        sign_at_str: str,
+    ) -> Optional[str]:
         sign_at_str = sign_at_str.replace("：", ":").strip()
 
         try:
             sign_at = dt_time.fromisoformat(sign_at_str)
-            crontab_expr = cls._time_to_crontab(sign_at)
+            crontab_expr = self._time_to_crontab(sign_at)
         except ValueError:
             try:
                 croniter(sign_at_str)
                 crontab_expr = sign_at_str
             except CroniterBadCronError:
+                self.log(f"时间格式错误: {sign_at_str}", level="error")
                 return None
         return crontab_expr
 
     @staticmethod
-    def _time_to_crontab(sign_at: time) -> str:
+    def _time_to_crontab(sign_at: dt_time) -> str:
         return f"{sign_at.minute} {sign_at.hour} * * *"
 
     def load_sign_record(self):
