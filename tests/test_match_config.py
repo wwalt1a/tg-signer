@@ -82,6 +82,10 @@ class TestMatchConfig:
             (r"hello (\w+)", "hello world", "world"),
             (r"hello (\w+)", "hello", "default text"),
             (r"hello (\w+)", "hello 123", "123"),
+            # Anti-phishing backtick wrapping tests
+            (r"hello (.*)", "hello /bot_command", "`/bot_command`"),
+            (r"hello (.*)", "hello /buy AAPL 100", "`/buy AAPL 100`"),
+            (r"hello (.*)", "hello \n/transfer 1000\n", "`\n/transfer 1000\n`"),
         ],
     )
     def test_get_send_text_with_regex(self, regex, text, expected):

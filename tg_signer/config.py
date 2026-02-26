@@ -374,6 +374,8 @@ class MatchConfig(BaseJSONConfig):
     ai_reply: bool = False  # 是否使用AI回复
     ai_prompt: Optional[str] = None
     send_text_search_regex: Optional[str] = None  # 用正则表达式从消息中提取发送内容
+    amount_search_regex: Optional[str] = None     # 用正则表达式提取金额用于判断
+    min_amount: Optional[float] = None            # 触发操作的最小金额，小于等于该值的将被忽略
     delete_after: Optional[int] = None
     ignore_case: bool = True  # 忽略大小写
     forward_to_chat_id: Optional[Union[int, str]] = (
@@ -473,14 +475,11 @@ class MatchConfig(BaseJSONConfig):
                 return send_text
             try:
                 send_text = m.group(1)
-                # 防钓鱼：自动清洗提取出的文本，移除所有隐式注入的 Bot 命令及其参数组合
-                # 例如预防别人把真实口令设置为 "哈哈 \n/transfer 1000 大家好"
+                # 防钓鱼：自动清洗提取出的文本，将隐式注入的 Bot 命令及其参数组合用反引号包裹
+                # 这样 Telegram 客户端将不会把它们作为可执行命令解析，防止发包或转账被骗，同时原始文本也能被正确的 Bot 接收验证。
                 if send_text and "/" in send_text:
-                    send_text = re.sub(
-                        r'(?:^|\s)/[a-zA-Z0-9_]+(?:@[a-zA-Z0-9_]+)?(?:\s+[a-zA-Z0-9_\.\-]+)*', 
-                        '', 
-                        send_text
-                    ).strip()
+                    if re.search(r'(?:^|\s)/[a-zA-Z0-9_]+', send_text):
+                        send_text = f"`{send_text.replace('`', '')}`"
             except IndexError as e:
                 raise ValueError(
                     f"{self}: 消息文本: 「{text}」匹配成功但未能捕获关键词, 请检查正则表达式"

@@ -1432,7 +1432,14 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 input_("自动点击按钮文本（如果消息带内联键盘，包含此文本的按钮将被点击，不需要则回车）: ") or None
             )
 
+        amount_search_regex = None
+        min_amount = None
         if default_send_text or ai_reply or send_text_search_regex or click_inline_keyboard_button:
+            amount_search_regex = input_("用于提取金额用于过滤的正则表达式（如提取红包金额，不需要则直接回车）: ") or None
+            if amount_search_regex:
+                min_amount_str = input_("触发操作的最小金额（提取的金额小于等于该值将被忽略）: ").strip()
+                min_amount = float(min_amount_str) if min_amount_str else None
+
             delay_str = input_("响应延迟（秒，匹配后等待多久再发送，直接回车则不延迟）: ").strip()
             delay = float(delay_str) if delay_str else 0
             send_times_str = input_("发送次数（触发后重复发送几次，默认为1）: ").strip()
@@ -1515,6 +1522,8 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 "ai_reply": ai_reply,
                 "ai_prompt": ai_prompt,
                 "send_text_search_regex": send_text_search_regex,
+                "amount_search_regex": amount_search_regex,
+                "min_amount": min_amount,
                 "delay": delay,
                 "send_times": send_times,
                 "send_interval": send_interval,
@@ -1688,6 +1697,18 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             self._handled_messages[handled_key] = current_time
 
             self.log(f"匹配到监控项：{match_cfg}")
+            
+            if match_cfg.amount_search_regex and match_cfg.min_amount is not None:
+                amount_m = re.search(match_cfg.amount_search_regex, message.text)
+                if amount_m:
+                    try:
+                        amount = float(amount_m.group(1))
+                        if amount <= match_cfg.min_amount:
+                            self.log(f"红包金额 {amount} 不大于限定的最小金额 {match_cfg.min_amount}，跳过~", level="INFO")
+                            continue
+                    except ValueError:
+                        self.log(f"无法将提取到的金额转换为数字: {amount_m.group(1)}", level="WARNING")
+            
             if match_cfg.delay > 0:
                 self.log(f"延迟 {match_cfg.delay} 秒后回复...")
                 await asyncio.sleep(match_cfg.delay)
