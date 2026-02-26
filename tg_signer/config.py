@@ -363,6 +363,7 @@ class HttpCallback(BaseModel):
 class MatchConfig(BaseJSONConfig):
     chat_id: Union[int, str] = None  # 聊天id或username
     thread_id: Optional[int] = None  # 话题 Thread ID（Forum 模式的超级群组话题，None 表示匹配所有话题）
+    enabled: bool = True             # 是否启用该监控任务
     rule: MatchRuleT = "exact"  # 匹配规则
     rule_value: Optional[str] = None  # 规则值
     from_user_ids: Optional[List[Union[int, str]]] = (

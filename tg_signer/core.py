@@ -1477,6 +1477,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 "转发到该话题 Thread ID（可选，不填则与来源话题相同，直接回车跳过）: "
             ).strip()
             forward_to_thread_id = int(forward_to_thread_id_str) if forward_to_thread_id_str else None
+            enabled = input_("是否默认启用该监控任务(Y/n): ").lower() != "n"
         else:
             delay = 0
             send_times = 1
@@ -1485,6 +1486,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             time_window = None
             forward_to_chat_id = None
             forward_to_thread_id = None
+            enabled = input_("是否默认启用该监控任务(Y/n): ").lower() != "n"
 
         push_via_server_chan = (
             input_("是否通过Server酱推送消息(y/N): ") or "n"
@@ -1526,6 +1528,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             {
                 "chat_id": chat_id,
                 "thread_id": thread_id,
+                "enabled": enabled,
                 "rule": rule,
                 "rule_value": rule_value,
                 "from_user_ids": from_user_ids,
@@ -1693,6 +1696,9 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             del self._handled_messages[k]
 
         for match_cfg in self.config.match_cfgs:
+            if not getattr(match_cfg, 'enabled', True):
+                continue
+                
             # 增加对 Chat ID 和 Thread ID 的预校验，减少不相关的调试日志输出
             if not match_cfg.match_chat(message.chat):
                 continue
