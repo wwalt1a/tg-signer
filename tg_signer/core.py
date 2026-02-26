@@ -806,9 +806,11 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         )
         if delete_after:
             delete_after = int(delete_after)
+        enabled = input_("是否默认启用该签到任务(Y/n): ").lower() != "n"
         cfgs = {
             "chat_id": chat_id,
             "name": name,
+            "enabled": enabled,
             "thread_id": thread_id,
             "delete_after": delete_after,
             "actions": actions,
@@ -998,8 +1000,14 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     self.log("[ActionGroups] 开始连接...")
                     tasks = []
                     for chat in config.chats:
+                        if not getattr(chat, 'enabled', True):
+                            self.log(f"群聊任务 {chat.chat_id} 已禁用，跳过", level="DEBUG")
+                            continue
                         if chat.action_groups:
                             for i, group in enumerate(chat.action_groups):
+                                if not getattr(group, 'enabled', True):
+                                    self.log(f"群聊任务 {chat.chat_id} 的组 {i} 已禁用，跳过", level="DEBUG")
+                                    continue
                                 tasks.append(
                                     self._run_action_group_loop(
                                         chat=chat,
@@ -1082,10 +1090,12 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             self.ensure_ai_cfg()
 
         sign_record = self.load_sign_record()
-        chat_ids = [c.chat_id for c in config.chats]
+        chat_ids = [c.chat_id for c in config.chats if getattr(c, 'enabled', True)]
 
         async def sign_once():
             for chat in config.chats:
+                if not getattr(chat, 'enabled', True):
+                    continue
                 self.context.sign_chats[chat.chat_id].append(chat)
                 try:
                     await self.sign_a_chat(chat)

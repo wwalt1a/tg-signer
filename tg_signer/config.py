@@ -227,6 +227,7 @@ ActionT: TypeAlias = Union[
 class ActionGroup(BaseModel):
     """一组动作的独立定时配置，可为每组 actions 单独指定触发时间。"""
 
+    enabled: bool = True           # 是否启用该大组任务
     sign_at: Optional[str] = None  # None 表示继承 SignConfigV3.sign_at
     actions: List[ActionT]
     action_interval: float = 1.0  # 本组内 actions 的间隔，单位秒
@@ -235,6 +236,7 @@ class ActionGroup(BaseModel):
 
 class SignChatV3(BaseJSONConfig):
     version: ClassVar = 3
+    enabled: bool = True             # 是否启用该群聊的所有签到任务
     chat_id: int
     name: Optional[str] = None
     thread_id: Optional[int] = None  # 话题 Thread ID（Forum 模式的超级群组话题）
