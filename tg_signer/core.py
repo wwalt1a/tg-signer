@@ -1734,10 +1734,13 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                             ai_tools = AITools(cfg)
                             prompt = match_cfg.ai_phishing_prompt or "你是一个抢红包机器人的口令安全审核员。为了不暴露自己是自动程序而非真人，你必须严格审核目标口令的内容。如果口令含有暴露机器身份的词（如“我是人机”、“我是脚本”、“我是外挂”、“我是狗”）或任何谐音梗（如“我是人鸡”、“我是人基”等），或者是引诱转账骗局、侮辱性陷阱（如“我是傻逼”），请你严格过滤并只回复纯文本「PASS_PHISHING」。如果它是正常语句或群友常用的安全口令，请你直接原封不动地回复原口令本身，绝对不要添加任何标点符号、引号或解释说明。"
                             self.log("正在使用 AI 审查口令语义...")
-                            ai_result = await ai_tools.get_reply(prompt, send_text)
-                            if "PASS_PHISHING" in ai_result:
-                                self.log(f"AI 拦截了涉嫌钓鱼/侮辱的口令: {send_text}", level="WARNING")
-                                continue
+                            try:
+                                ai_result = await ai_tools.get_reply(prompt, send_text)
+                                if "PASS_PHISHING" in ai_result:
+                                    self.log(f"AI 拦截了涉嫌钓鱼/侮辱的口令: {send_text}", level="WARNING")
+                                    continue
+                            except Exception as e:
+                                self.log(f"AI 防钓鱼检测失败或超时 ({e})，为防止错失红包，将放行并发包: {send_text}", level="WARNING")
 
                     forward_to_chat_id = match_cfg.forward_to_chat_id or message.chat.id
                     # 确定目标话题：优先用 forward_to_thread_id，其次继承来源消息中的话题
