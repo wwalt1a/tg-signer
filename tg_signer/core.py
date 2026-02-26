@@ -1740,7 +1740,8 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                                     self.log(f"AI 拦截了涉嫌钓鱼/侮辱的口令: {send_text}", level="WARNING")
                                     continue
                             except Exception as e:
-                                self.log(f"AI 防钓鱼检测失败或超时 ({e})，为防止错失红包，将放行并发包: {send_text}", level="WARNING")
+                                self.log(f"AI 防钓鱼检测失败或超时 ({e})，按照安全策略拦截口令: {send_text}", level="WARNING")
+                                continue
 
                     forward_to_chat_id = match_cfg.forward_to_chat_id or message.chat.id
                     # 确定目标话题：优先用 forward_to_thread_id，其次继承来源消息中的话题
