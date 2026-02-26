@@ -1422,10 +1422,16 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             print_to_user(OPENAI_USE_PROMPT)
 
         send_text_search_regex = None
+        ai_phishing_check = False
+        ai_phishing_prompt = None
         if not ai_reply:
             send_text_search_regex = (
                 input_("从消息中提取发送文本的正则表达式（不需要则直接回车）: ") or None
             )
+            if send_text_search_regex:
+                ai_phishing_check = input_("是否启用于防钓鱼语义审查（过滤侮辱、诈骗口令）(y/N): ").lower() == "y"
+                if ai_phishing_check:
+                    ai_phishing_prompt = input_("AI 防钓鱼检测 Prompt （直接回车使用默认）: ") or None
 
         click_inline_keyboard_button = None
         if not default_send_text and not ai_reply:
@@ -1522,6 +1528,8 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 "click_inline_keyboard_button": click_inline_keyboard_button,
                 "ai_reply": ai_reply,
                 "ai_prompt": ai_prompt,
+                "ai_phishing_check": ai_phishing_check,
+                "ai_phishing_prompt": ai_phishing_prompt,
                 "send_text_search_regex": send_text_search_regex,
                 "amount_search_regex": amount_search_regex,
                 "min_amount": min_amount,
@@ -1719,6 +1727,18 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 if not send_text:
                     self.log("发送内容为空", level="WARNING")
                 else:
+                    if getattr(match_cfg, 'ai_phishing_check', False):
+                        from tg_signer.ai_tools import OpenAIConfigManager, AITools
+                        cfg = OpenAIConfigManager(self.workdir).load_config()
+                        if cfg:
+                            ai_tools = AITools(cfg)
+                            prompt = match_cfg.ai_phishing_prompt or "你是一个文本审核员。如果你发现接下来的文本包含侮辱性陷阱（如“我是人鸡”、“我是傻逼”等）、引诱转账骗局或非常明显的套路恶搞，请你只回复「PASS_PHISHING」。如果它是正常语句或群友常用的口令，请你直接回复原文本本身，不要添加任何标点符号、引号或解释。"
+                            self.log("正在使用 AI 审查口令语义...")
+                            ai_result = await ai_tools.get_reply(prompt, send_text)
+                            if "PASS_PHISHING" in ai_result:
+                                self.log(f"AI 拦截了涉嫌钓鱼/侮辱的口令: {send_text}", level="WARNING")
+                                continue
+
                     forward_to_chat_id = match_cfg.forward_to_chat_id or message.chat.id
                     # 确定目标话题：优先用 forward_to_thread_id，其次继承来源消息中的话题
                     forward_thread_id = match_cfg.forward_to_thread_id

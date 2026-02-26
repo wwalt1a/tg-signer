@@ -373,6 +373,8 @@ class MatchConfig(BaseJSONConfig):
     click_inline_keyboard_button: Optional[str] = None  # 自动点击匹配文本的内联键盘按钮
     ai_reply: bool = False  # 是否使用AI回复
     ai_prompt: Optional[str] = None
+    ai_phishing_check: bool = False  # 是否启用于防钓鱼语义审查
+    ai_phishing_prompt: Optional[str] = None # 用于防钓鱼的系统prompt
     send_text_search_regex: Optional[str] = None  # 用正则表达式从消息中提取发送内容
     amount_search_regex: Optional[str] = None     # 用正则表达式提取金额用于判断
     min_amount: Optional[float] = None            # 触发操作的最小金额，小于等于该值的将被忽略
