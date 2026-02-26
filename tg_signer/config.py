@@ -378,6 +378,7 @@ class MatchConfig(BaseJSONConfig):
     send_text_search_regex: Optional[str] = None  # 用正则表达式从消息中提取发送内容
     amount_search_regex: Optional[str] = None     # 用正则表达式提取金额用于判断
     min_amount: Optional[float] = None            # 触发操作的最小金额，小于等于该值的将被忽略
+    time_window: Optional[str] = None             # 触发的时间段，形如 "08:00-23:59"，如果为空则无限制
     delete_after: Optional[int] = None
     ignore_case: bool = True  # 忽略大小写
     forward_to_chat_id: Optional[Union[int, str]] = (
@@ -428,6 +429,25 @@ class MatchConfig(BaseJSONConfig):
             )
             or ("me" in self.from_user_set and message.from_user.is_self)
         )
+
+    def is_in_time_window(self) -> bool:
+        """检查当前系统本地时间是否在配置的允许触发时间段内"""
+        if not self.time_window:
+            return True
+        try:
+            start_str, end_str = self.time_window.split("-")
+            start_time = datetime.strptime(start_str.strip(), "%H:%M").time()
+            end_time = datetime.strptime(end_str.strip(), "%H:%M").time()
+            now = datetime.now().time()
+            
+            if start_time < end_time:
+                return start_time <= now <= end_time
+            else:
+                # 跨天的情况，例如 "23:00-08:00"
+                return now >= start_time or now <= end_time
+        except Exception as e:
+            # 如果配置格式写错，默认放行，避免错误配置导致任务死锁
+            return True
 
     def match_text(self, text: str) -> bool:
         """

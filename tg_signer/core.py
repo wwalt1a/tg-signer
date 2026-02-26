@@ -1463,6 +1463,11 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             )
             if delete_after:
                 delete_after = int(delete_after)
+                
+            time_window = input_(
+                "仅在指定时间段内触发（如 08:00-23:30，表示只在早8点到晚11点半之间工作，不需要限制直接回车）: "
+            ).strip() or None
+                
             forward_to_chat_id = (
                 input_("转发消息到该聊天ID，默认为消息来源：")
             ).strip()
@@ -1477,6 +1482,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             send_times = 1
             send_interval = 1.0
             delete_after = None
+            time_window = None
             forward_to_chat_id = None
             forward_to_thread_id = None
 
@@ -1533,6 +1539,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 "send_text_search_regex": send_text_search_regex,
                 "amount_search_regex": amount_search_regex,
                 "min_amount": min_amount,
+                "time_window": time_window,
                 "delay": delay,
                 "send_times": send_times,
                 "send_interval": send_interval,
@@ -1690,6 +1697,9 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             if not match_cfg.match_chat(message.chat):
                 continue
             if not match_cfg.match_thread(message):
+                continue
+                
+            if not match_cfg.is_in_time_window():
                 continue
 
             # 仅在话题匹配时输出调试日志，解决日志中大量 Topic: None 的混淆
