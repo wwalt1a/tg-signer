@@ -1737,6 +1737,15 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             if match_cfg.delay > 0:
                 self.log(f"延迟 {match_cfg.delay} 秒后回复...")
                 await asyncio.sleep(match_cfg.delay)
+                # 延迟后二次校验消息状态，防止红包在延迟期间被抢完
+                try:
+                    refreshed_msg = await self.app.get_messages(message.chat.id, message.id)
+                    if refreshed_msg and refreshed_msg.text:
+                        if "已被抢完" in refreshed_msg.text or "已过期" in refreshed_msg.text:
+                            self.log("发包前急刹车：检测到红包已被抢完或已过期，放弃发口令。", level="INFO")
+                            continue
+                except Exception as e:
+                    self.log(f"发包前二次校验失败({e})，继续尝试发包。", level="DEBUG")
             await self.forward_to_external(match_cfg, message)
             try:
                 send_text = await self.get_send_text(match_cfg, message)
