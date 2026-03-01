@@ -1840,6 +1840,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 match_cfg.ai_prompt,
                 message.text,
             )
+            self.log(f"AI识别口令结果为: {send_text}")
         return send_text
 
     async def run(self, num_of_dialogs=20):
