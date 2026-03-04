@@ -372,6 +372,7 @@ class MatchConfig(BaseJSONConfig):
         None  # 发送者id或username，为空时，匹配所有人
     )
     always_ignore_me: bool = False  # 总是忽略自己发送的消息
+    reply_to_me: bool = False  # 仅当被回复的消息是自己发的时才触发
     default_send_text: Optional[str] = None  # 默认发送内容
     click_inline_keyboard_button: Optional[str] = None  # 自动点击匹配文本的内联键盘按钮
     ai_reply: bool = False  # 是否使用AI回复

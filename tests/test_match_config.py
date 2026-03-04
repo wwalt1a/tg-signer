@@ -85,7 +85,7 @@ class TestMatchConfig:
             # Anti-phishing backtick wrapping tests
             (r"hello (.*)", "hello /bot_command", "`/bot_command`"),
             (r"hello (.*)", "hello /buy AAPL 100", "`/buy AAPL 100`"),
-            (r"hello (.*)", "hello \n/transfer 1000\n", "`\n/transfer 1000\n`"),
+            (r"(?s)hello (.*)", "hello \n/transfer 1000\n", "`\n/transfer 1000\n`"),
         ],
     )
     def test_get_send_text_with_regex(self, regex, text, expected):
@@ -176,3 +176,20 @@ class TestMatchConfig:
         msg_other.from_user = None
         msg_other.text = "anything"
         assert config.match(msg_other) is False
+
+    # ---- 仅回复自己配置 (reply_to_me) 测试 ----
+    def test_reply_to_me_config(self):
+        # 默认值为 False
+        config = MatchConfig(chat_id=123)
+        assert config.reply_to_me is False
+
+        # 可配置为 True
+        config = MatchConfig(chat_id=123, reply_to_me=True)
+        assert config.reply_to_me is True
+
+        # 测试序列化与反序列化
+        json_data = config.to_jsonable()
+        assert json_data["reply_to_me"] is True
+
+        loaded_config, _ = MatchConfig.load(json_data)
+        assert loaded_config.reply_to_me is True

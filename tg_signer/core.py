@@ -1416,6 +1416,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             or None
         )
         always_ignore_me = input_("总是忽略自己发送的消息（y/N）: ").lower() == "y"
+        reply_to_me = input_("仅当被回复消息是自己发送的才触发（y/N）: ").lower() == "y"
         if from_user_ids:
             from_user_ids = [
                 i if i.startswith("@") else int(i) for i in from_user_ids.split(",")
@@ -1543,6 +1544,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 "rule_value": rule_value,
                 "from_user_ids": from_user_ids,
                 "always_ignore_me": always_ignore_me,
+                "reply_to_me": reply_to_me,
                 "default_send_text": default_send_text,
                 "click_inline_keyboard_button": click_inline_keyboard_button,
                 "ai_reply": ai_reply,
@@ -1717,6 +1719,11 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 
             if not match_cfg.is_in_time_window():
                 continue
+
+            if getattr(match_cfg, 'reply_to_me', False):
+                replied = message.reply_to_message
+                if not replied or not replied.from_user or not replied.from_user.is_self:
+                    continue
 
             # 仅在话题匹配时输出调试日志，解决日志中大量 Topic: None 的混淆
             safe_text = str(message.text or "")
