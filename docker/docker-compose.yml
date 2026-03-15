@@ -14,5 +14,10 @@ services:
     environment:
       - TG_PROXY=socks5://172.17.0.1:7890
       - TZ=${TZ:-Asia/Shanghai}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     network_mode: bridge
     restart: unless-stopped
