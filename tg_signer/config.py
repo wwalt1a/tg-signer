@@ -18,6 +18,16 @@ from pyrogram.types import Chat, Message
 from typing_extensions import Self, TypeAlias
 
 
+def get_message_text(message: "Message") -> str:
+    """统一获取消息可用于匹配/提取的文本。
+
+    普通文本消息内容在 `message.text`，而图片/动图/视频等媒体消息的
+    文字说明在 `message.caption`。两者互斥，这里优先取 text，为空时回退到
+    caption，保证媒体型红包消息也能被规则匹配。
+    """
+    return message.text or message.caption or ""
+
+
 def get_display_width(text: str) -> int:
     """计算文本在终端中的显示宽度（考虑中文字符占2个字符位）"""
     width = 0
@@ -491,7 +501,7 @@ class MatchConfig(BaseJSONConfig):
         return (
             self.match_chat(message.chat)
             and self.match_thread(message)
-            and bool(self.match_user(message) and self.match_text(message.text))
+            and bool(self.match_user(message) and self.match_text(get_message_text(message)))
         )
 
     def get_send_text(self, text: str) -> str:

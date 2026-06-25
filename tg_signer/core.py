@@ -58,6 +58,7 @@ from tg_signer.config import (
     SignConfigV3,
     SupportAction,
     UDPForward,
+    get_message_text,
 )
 
 # --- 深度稳定性补丁 (Deep Stability Patch) ---
@@ -1736,7 +1737,8 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                     continue
 
             # 仅在话题匹配时输出调试日志，解决日志中大量 Topic: None 的混淆
-            safe_text = str(message.text or "")
+            # 兼容媒体消息：文字可能在 caption 而非 text
+            safe_text = get_message_text(message)
             self.log(f"DEBUG: 收到匹配话题的消息 - Chat: {message.chat.id}, Topic: {message.message_thread_id}, From: {message.from_user.id if message.from_user else 'None'}, Text: {safe_text[:50]}...")
 
             if not match_cfg.match(message):
@@ -1751,7 +1753,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             self.log(f"匹配到监控项：{match_cfg}")
             
             if match_cfg.amount_search_regex and match_cfg.min_amount is not None:
-                amount_m = re.search(match_cfg.amount_search_regex, message.text)
+                amount_m = re.search(match_cfg.amount_search_regex, get_message_text(message))
                 if amount_m:
                     try:
                         amount = float(amount_m.group(1))
@@ -1770,8 +1772,9 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                 # 延迟后二次校验消息状态，防止红包在延迟期间被抢完
                 try:
                     refreshed_msg = await self.app.get_messages(message.chat.id, message.id)
-                    if refreshed_msg and refreshed_msg.text:
-                        if "已被抢完" in refreshed_msg.text or "已过期" in refreshed_msg.text:
+                    refreshed_text = get_message_text(refreshed_msg) if refreshed_msg else ""
+                    if refreshed_text:
+                        if "已被抢完" in refreshed_text or "已过期" in refreshed_text:
                             self.log("发包前急刹车：检测到红包已被抢完或已过期，放弃发口令。", level="INFO")
                             continue
                     # 延迟期间按钮状态可能变化（如 🧧 被抢后变 ✔），改用最新消息进行点击
@@ -1822,7 +1825,8 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                         )
 
                 if match_cfg.click_inline_keyboard_button:
-                    if click_message.text and ("已被抢完" in click_message.text or "已过期" in click_message.text):
+                    click_msg_text = get_message_text(click_message)
+                    if click_msg_text and ("已被抢完" in click_msg_text or "已过期" in click_msg_text):
                         self.log("消息中包含「已被抢完」或「已过期」，跳过点击尝试", level="DEBUG")
                     else:
                         action = ClickKeyboardByTextAction(text=match_cfg.click_inline_keyboard_button)
@@ -1843,7 +1847,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                         await sc_send(
                             server_chan_send_key,
                             f"匹配到监控项：{match_cfg.chat_id}",
-                            f"消息内容为:\n\n{message.text}",
+                            f"消息内容为:\n\n{get_message_text(message)}",
                         )
             except IndexError as e:
                 logger.exception(e)
@@ -1859,11 +1863,12 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         await self.on_message(client, message)
 
     async def get_send_text(self, match_cfg: MatchConfig, message: Message) -> str:
-        send_text = match_cfg.get_send_text(message.text)
+        msg_text = get_message_text(message)
+        send_text = match_cfg.get_send_text(msg_text)
         if match_cfg.ai_reply and match_cfg.ai_prompt:
             send_text = await self.get_ai_tools().get_reply(
                 match_cfg.ai_prompt,
-                message.text,
+                msg_text,
             )
             self.log(f"AI识别口令结果为: {send_text}")
         return send_text
