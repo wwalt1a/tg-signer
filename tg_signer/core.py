@@ -1654,7 +1654,7 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
             self.log(f"点击回调失败: {type(e).__name__} - {e}", level="ERROR")
 
     async def _click_keyboard_by_text(
-        self, action: ClickKeyboardByTextAction, message: Message
+        self, action: ClickKeyboardByTextAction, message: Message, click_interval: float = 0.5
     ):
         # 清理过期的回调记录 (保留 1 小时内的记录)
         current_time = time.time()
@@ -1665,39 +1665,49 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         if reply_markup := message.reply_markup:
             if isinstance(reply_markup, InlineKeyboardMarkup):
                 flat_buttons = (b for row in reply_markup.inline_keyboard for b in row)
-                option_to_btn: dict[str, InlineKeyboardButton] = {}
+                # 遍历全部按钮，点击所有文本匹配的按钮（而非命中首个即返回），
+                # 用于一条消息中存在多个目标按钮（如多个未领取红包）的场景。
+                clicked_any = False
                 for btn in flat_buttons:
-                    option_to_btn[btn.text] = btn
-                    if action.text in btn.text:
-                        if btn.callback_data:
-                            cb_str = btn.callback_data.decode() if isinstance(btn.callback_data, bytes) else btn.callback_data
-                            if cb_str in self._clicked_callbacks:
-                                self.log(f"按钮 {btn.text} 的 callback_data={cb_str} 已经点击过，跳过", level="DEBUG")
-                                return True
-                            self._clicked_callbacks[cb_str] = current_time
+                    if action.text not in btn.text:
+                        continue
 
-                        self.log(f"找到匹配按钮: {btn.text} | callback_data={btn.callback_data} | url={btn.url}")
-                        try:
-                            if btn.callback_data:
-                                await self.request_callback_answer(
-                                    self.app,
-                                    message.chat.id,
-                                    message.id,
-                                    btn.callback_data,
-                                )
-                            elif btn.url:
-                                self.log(f"该按钮是 URL 按钮，无法通过 callback_data 点击: {btn.url}")
-                                # 如果是启动机器人的 deep link URL，可以尝试解析并发 start 消息
-                                if "start=" in btn.url:
-                                    bot_username = btn.url.split("?")[0].split("/")[-1]
-                                    payload = btn.url.split("start=")[-1]
-                                    self.log(f"解析到 Deep Link，尝试向 {bot_username} 发送 /start {payload}")
-                                    await self.app.send_message(bot_username, f"/start {payload}")
-                        except errors.MessageDeleted:
-                            self.log("尝试点击时消息已被删除", level="DEBUG")
-                        except Exception as e:
-                            self.log(f"点击动作发生异常: {e}", level="WARNING")
-                        return True
+                    if btn.callback_data:
+                        cb_str = btn.callback_data.decode() if isinstance(btn.callback_data, bytes) else btn.callback_data
+                        if cb_str in self._clicked_callbacks:
+                            self.log(f"按钮 {btn.text} 的 callback_data={cb_str} 已经点击过，跳过", level="DEBUG")
+                            clicked_any = True
+                            continue
+                        self._clicked_callbacks[cb_str] = current_time
+
+                    self.log(f"找到匹配按钮: {btn.text} | callback_data={btn.callback_data} | url={btn.url}")
+                    try:
+                        if btn.callback_data:
+                            await self.request_callback_answer(
+                                self.app,
+                                message.chat.id,
+                                message.id,
+                                btn.callback_data,
+                            )
+                            clicked_any = True
+                            # 多个按钮连续点击之间留出间隔，降低触发限流的概率
+                            if click_interval > 0:
+                                await asyncio.sleep(click_interval)
+                        elif btn.url:
+                            self.log(f"该按钮是 URL 按钮，无法通过 callback_data 点击: {btn.url}")
+                            # 如果是启动机器人的 deep link URL，可以尝试解析并发 start 消息
+                            if "start=" in btn.url:
+                                bot_username = btn.url.split("?")[0].split("/")[-1]
+                                payload = btn.url.split("start=")[-1]
+                                self.log(f"解析到 Deep Link，尝试向 {bot_username} 发送 /start {payload}")
+                                await self.app.send_message(bot_username, f"/start {payload}")
+                                clicked_any = True
+                    except errors.MessageDeleted:
+                        self.log("尝试点击时消息已被删除", level="DEBUG")
+                        return clicked_any
+                    except Exception as e:
+                        self.log(f"点击动作发生异常: {e}", level="WARNING")
+                return clicked_any
         return False
 
     async def on_message(self, client, message: Message):
@@ -1751,6 +1761,9 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                     except ValueError:
                         self.log(f"无法将提取到的金额转换为数字: {amount_m.group(1)}", level="WARNING")
             
+            # 点击按钮时使用的消息对象，默认为收到的原始消息；
+            # 若发生延迟，则在延迟后替换为重新拉取的最新消息，保证按钮状态最新。
+            click_message = message
             if match_cfg.delay > 0:
                 self.log(f"延迟 {match_cfg.delay} 秒后回复...")
                 await asyncio.sleep(match_cfg.delay)
@@ -1761,6 +1774,9 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                         if "已被抢完" in refreshed_msg.text or "已过期" in refreshed_msg.text:
                             self.log("发包前急刹车：检测到红包已被抢完或已过期，放弃发口令。", level="INFO")
                             continue
+                    # 延迟期间按钮状态可能变化（如 🧧 被抢后变 ✔），改用最新消息进行点击
+                    if refreshed_msg:
+                        click_message = refreshed_msg
                 except Exception as e:
                     self.log(f"发包前二次校验失败({e})，继续尝试发包。", level="DEBUG")
             await self.forward_to_external(match_cfg, message)
@@ -1806,11 +1822,13 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                         )
 
                 if match_cfg.click_inline_keyboard_button:
-                    if message.text and ("已被抢完" in message.text or "已过期" in message.text):
+                    if click_message.text and ("已被抢完" in click_message.text or "已过期" in click_message.text):
                         self.log("消息中包含「已被抢完」或「已过期」，跳过点击尝试", level="DEBUG")
                     else:
                         action = ClickKeyboardByTextAction(text=match_cfg.click_inline_keyboard_button)
-                        clicked = await self._click_keyboard_by_text(action, message)
+                        clicked = await self._click_keyboard_by_text(
+                            action, click_message, click_interval=match_cfg.click_interval
+                        )
                         if not clicked:
                             self.log(f"未能找到包含 {match_cfg.click_inline_keyboard_button} 的按钮", level="WARNING")
 

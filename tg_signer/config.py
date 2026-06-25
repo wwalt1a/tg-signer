@@ -375,6 +375,7 @@ class MatchConfig(BaseJSONConfig):
     reply_to_me: bool = False  # 仅当被回复的消息是自己发的时才触发
     default_send_text: Optional[str] = None  # 默认发送内容
     click_inline_keyboard_button: Optional[str] = None  # 自动点击匹配文本的内联键盘按钮
+    click_interval: float = 0.5  # 一条消息中存在多个匹配按钮时，连续点击之间的间隔秒数
     ai_reply: bool = False  # 是否使用AI回复
     ai_prompt: Optional[str] = None
     ai_phishing_check: bool = False  # 是否启用于防钓鱼语义审查
