@@ -289,6 +289,12 @@ def get_now():
     return datetime.now(tz=timezone(timedelta(hours=8)))
 
 
+def is_red_packet_closed(text: str) -> bool:
+    return bool(text) and any(
+        status in text for status in ("已被抢完", "已过期", "已结束")
+    )
+
+
 def make_dirs(path: pathlib.Path, exist_ok=True):
     path = pathlib.Path(path)
     if not path.is_dir():
@@ -878,6 +884,15 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
     def _time_to_crontab(sign_at: dt_time) -> str:
         return f"{sign_at.minute} {sign_at.hour} * * *"
 
+    @staticmethod
+    def _schedule_due_today(crontab_expr: str, now: datetime) -> bool:
+        """Return whether at least one scheduled run is due on ``now``'s date."""
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        first_run_today = croniter(
+            crontab_expr, day_start - timedelta(seconds=1)
+        ).next(datetime)
+        return first_run_today.date() == now.date() and first_run_today <= now
+
     def load_sign_record(self):
         sign_record = {}
         if not self.sign_record_file.is_file():
@@ -938,7 +953,12 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 if force_rerun:
                     return True
                 if record_key not in sign_record:
-                    return True
+                    if self._schedule_due_today(effective_sign_at, now):
+                        return True
+                    self.log(
+                        f"[Group {group_index}] 今日计划时间尚未到达，无需执行"
+                    )
+                    return False
                 _last_at = datetime.fromisoformat(sign_record[record_key])
                 self.log(f"[Group {group_index}] 上次执行时间: {_last_at}")
                 _cron_it = croniter(effective_sign_at, _last_at)
@@ -1114,7 +1134,11 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             if force_rerun:
                 return True
             if last_date_str not in sign_record:
-                return True
+                sign_at = self._validate_sign_at(config.sign_at)
+                if self._schedule_due_today(sign_at, now):
+                    return True
+                self.log("今日计划时间尚未到达，无需执行")
+                return False
             _last_sign_at = datetime.fromisoformat(sign_record[last_date_str])
             self.log(f"上次执行时间: {_last_sign_at}")
             _cron_it = croniter(self._validate_sign_at(config.sign_at), _last_sign_at)
@@ -1718,7 +1742,23 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
         for k in expired_handled:
             del self._handled_messages[k]
 
+        # 每条规则独立处理，使各自的 delay 都从收到消息时开始计算。
+        # _clicked_callbacks 仍会阻止不同规则重复点击同一个 callback_data。
+        await asyncio.gather(
+            *(
+                self._handle_message_config(client, message, match_cfg, current_time)
+                for match_cfg in self.config.match_cfgs
+            )
+        )
+
+    async def _handle_message_config(
+        self, client, message: Message, target_cfg: MatchConfig, current_time: float
+    ):
+        del client
+
         for match_cfg in self.config.match_cfgs:
+            if match_cfg is not target_cfg:
+                continue
             if not getattr(match_cfg, 'enabled', True):
                 continue
                 
@@ -1774,8 +1814,11 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
                     refreshed_msg = await self.app.get_messages(message.chat.id, message.id)
                     refreshed_text = get_message_text(refreshed_msg) if refreshed_msg else ""
                     if refreshed_text:
-                        if "已被抢完" in refreshed_text or "已过期" in refreshed_text:
-                            self.log("发包前急刹车：检测到红包已被抢完或已过期，放弃发口令。", level="INFO")
+                        if is_red_packet_closed(refreshed_text):
+                            self.log(
+                                "发包前急刹车：检测到红包已被抢完、已过期或已结束，放弃发口令。",
+                                level="INFO",
+                            )
                             continue
                     # 延迟期间按钮状态可能变化（如 🧧 被抢后变 ✔），改用最新消息进行点击
                     if refreshed_msg:
@@ -1826,8 +1869,11 @@ class UserMonitor(BaseUserWorker[MonitorConfig]):
 
                 if match_cfg.click_inline_keyboard_button:
                     click_msg_text = get_message_text(click_message)
-                    if click_msg_text and ("已被抢完" in click_msg_text or "已过期" in click_msg_text):
-                        self.log("消息中包含「已被抢完」或「已过期」，跳过点击尝试", level="DEBUG")
+                    if is_red_packet_closed(click_msg_text):
+                        self.log(
+                            "消息中包含「已被抢完」「已过期」或「已结束」，跳过点击尝试",
+                            level="DEBUG",
+                        )
                     else:
                         action = ClickKeyboardByTextAction(text=match_cfg.click_inline_keyboard_button)
                         clicked = await self._click_keyboard_by_text(

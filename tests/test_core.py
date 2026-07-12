@@ -1,13 +1,16 @@
 import asyncio
 import pathlib
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 
 from tg_signer.core import (
     BaseUserWorker,
+    UserMonitor,
     UserSigner,
     get_client,
+    is_red_packet_closed,
 )
 
 
@@ -15,6 +18,60 @@ class TestBaseUserWorker:
     @pytest.mark.asyncio
     async def test(self):
         BaseUserWorker()
+
+
+@pytest.mark.parametrize(
+    ("crontab_expr", "now", "expected"),
+    [
+        ("18 21 * * *", datetime(2026, 7, 12, 7, 0), False),
+        ("18 3 * * *", datetime(2026, 7, 12, 7, 0), True),
+        ("18 21 * * *", datetime(2026, 7, 12, 21, 18), True),
+        ("0 * * * *", datetime(2026, 7, 12, 0, 30), True),
+        ("0 0 * * *", datetime(2026, 7, 12, 0, 0), True),
+    ],
+)
+def test_schedule_due_today(crontab_expr, now, expected):
+    tz = timezone(timedelta(hours=8))
+    assert UserSigner._schedule_due_today(crontab_expr, now.replace(tzinfo=tz)) is expected
+
+
+@pytest.mark.asyncio
+async def test_monitor_rules_are_dispatched_concurrently():
+    monitor = object.__new__(UserMonitor)
+    monitor._handled_messages = {}
+    monitor.config = SimpleNamespace(match_cfgs=[object(), object()])
+    both_started = asyncio.Event()
+    started = 0
+
+    async def fake_handle(client, message, match_cfg, current_time):
+        nonlocal started
+        del client, message, match_cfg, current_time
+        started += 1
+        if started == 2:
+            both_started.set()
+        await asyncio.wait_for(both_started.wait(), timeout=1)
+
+    monitor._handle_message_config = fake_handle
+
+    await monitor.on_message(None, SimpleNamespace())
+    assert started == 2
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "红包已被抢完",
+        "该红包已过期",
+        "本轮红包已结束",
+    ],
+)
+def test_red_packet_closed_statuses(text):
+    assert is_red_packet_closed(text)
+
+
+@pytest.mark.parametrize("text", ["红包领取中", "领取成功", "", None])
+def test_red_packet_open_statuses(text):
+    assert not is_red_packet_closed(text)
 
 
 def _clear_client_state():
